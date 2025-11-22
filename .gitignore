@@ -1,0 +1,45 @@
+# Python
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+env/
+ENV/
+.venv
+
+# Package build
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Output files (you may want to track these)
+*_with_pages.html
+test_output.html
+test_*.json
+test_*.html
+
+# Your actual book files (adjust as needed)
+# book.html
+# book.pdf
+# page_references.json

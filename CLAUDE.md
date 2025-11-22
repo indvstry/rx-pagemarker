@@ -1,0 +1,1 @@
+- memorize tha page marker html snippet
