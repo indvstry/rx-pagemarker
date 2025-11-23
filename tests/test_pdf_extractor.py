@@ -1,0 +1,359 @@
+"""Tests for PDF extraction functionality."""
+
+import json
+from pathlib import Path
+from unittest.mock import MagicMock, Mock, mock_open, patch
+
+import pytest
+
+from rx_pagemarker.pdf_extractor import (
+    InvalidParameterError,
+    MissingDependencyError,
+    PDFExtractionError,
+    PDFExtractor,
+    PDFNotFoundError,
+    print_validation_results,
+    validate_snippets,
+)
+
+
+class TestPDFExtractorInit:
+    """Test PDFExtractor initialization and validation."""
+
+    def test_init_with_valid_parameters(self):
+        """Test initialization with valid parameters."""
+        extractor = PDFExtractor(
+            pdf_path="test.pdf",
+            backend="auto",
+            snippet_words=10,
+            min_words=3,
+            strategy="end_of_page",
+        )
+        assert extractor.pdf_path == Path("test.pdf")
+        assert extractor.snippet_words == 10
+        assert extractor.min_words == 3
+        assert extractor.strategy == "end_of_page"
+
+    def test_init_with_invalid_snippet_words_zero(self):
+        """Test that snippet_words < 1 raises InvalidParameterError."""
+        with pytest.raises(InvalidParameterError, match="snippet_words must be >= 1"):
+            PDFExtractor("test.pdf", snippet_words=0)
+
+    def test_init_with_invalid_snippet_words_negative(self):
+        """Test that negative snippet_words raises InvalidParameterError."""
+        with pytest.raises(InvalidParameterError, match="snippet_words must be >= 1"):
+            PDFExtractor("test.pdf", snippet_words=-5)
+
+    def test_init_with_invalid_min_words(self):
+        """Test that min_words < 1 raises InvalidParameterError."""
+        with pytest.raises(InvalidParameterError, match="min_words must be >= 1"):
+            PDFExtractor("test.pdf", min_words=0)
+
+    def test_init_with_snippet_words_too_large(self):
+        """Test that snippet_words > 1000 raises InvalidParameterError."""
+        with pytest.raises(InvalidParameterError, match="snippet_words must be <= 1000"):
+            PDFExtractor("test.pdf", snippet_words=1001)
+
+    @patch("rx_pagemarker.pdf_extractor.HAS_PYMUPDF", False)
+    @patch("rx_pagemarker.pdf_extractor.HAS_PDFPLUMBER", False)
+    def test_init_with_no_backends_available(self):
+        """Test that MissingDependencyError is raised when no backends available."""
+        with pytest.raises(
+            MissingDependencyError, match="Neither PyMuPDF nor pdfplumber"
+        ):
+            PDFExtractor("test.pdf", backend="auto")
+
+    @patch("rx_pagemarker.pdf_extractor.HAS_PYMUPDF", False)
+    def test_init_with_missing_pymupdf(self):
+        """Test that MissingDependencyError is raised when PyMuPDF requested but not available."""
+        with pytest.raises(MissingDependencyError, match="PyMuPDF not installed"):
+            PDFExtractor("test.pdf", backend="pymupdf")
+
+    @patch("rx_pagemarker.pdf_extractor.HAS_PDFPLUMBER", False)
+    def test_init_with_missing_pdfplumber(self):
+        """Test that MissingDependencyError is raised when pdfplumber requested but not available."""
+        with pytest.raises(MissingDependencyError, match="pdfplumber not installed"):
+            PDFExtractor("test.pdf", backend="pdfplumber")
+
+    @patch("rx_pagemarker.pdf_extractor.HAS_PYMUPDF", True)
+    @patch("rx_pagemarker.pdf_extractor.HAS_PDFPLUMBER", False)
+    def test_backend_auto_selects_pymupdf(self):
+        """Test that 'auto' backend selects PyMuPDF when available."""
+        extractor = PDFExtractor("test.pdf", backend="auto")
+        assert extractor.backend == "pymupdf"
+
+    @patch("rx_pagemarker.pdf_extractor.HAS_PYMUPDF", False)
+    @patch("rx_pagemarker.pdf_extractor.HAS_PDFPLUMBER", True)
+    def test_backend_auto_fallback_to_pdfplumber(self):
+        """Test that 'auto' backend falls back to pdfplumber."""
+        extractor = PDFExtractor("test.pdf", backend="auto")
+        assert extractor.backend == "pdfplumber"
+
+
+class TestPDFExtractorExtract:
+    """Test PDF extraction methods."""
+
+    def test_extract_with_nonexistent_file(self, tmp_path):
+        """Test that PDFNotFoundError is raised for nonexistent PDF."""
+        pdf_path = tmp_path / "nonexistent.pdf"
+        extractor = PDFExtractor(pdf_path)
+
+        with pytest.raises(PDFNotFoundError, match="PDF file not found"):
+            extractor.extract()
+
+    @patch("rx_pagemarker.pdf_extractor.HAS_PYMUPDF", True)
+    @patch("rx_pagemarker.pdf_extractor.fitz")
+    def test_extract_with_pymupdf_success(self, mock_fitz, tmp_path):
+        """Test successful extraction using PyMuPDF."""
+        # Create a real PDF file for path.exists() check
+        pdf_path = tmp_path / "test.pdf"
+        pdf_path.write_bytes(b"fake pdf content")
+
+        # Mock PyMuPDF document and page
+        mock_page = MagicMock()
+        mock_page.get_text.return_value = "This is sample text from the page."
+
+        mock_doc = MagicMock()
+        mock_doc.__len__.return_value = 1
+        mock_doc.__getitem__.return_value = mock_page  # Support doc[page_num]
+        mock_doc.__enter__.return_value = mock_doc
+        mock_doc.__exit__.return_value = None
+
+        mock_fitz.open.return_value = mock_doc
+
+        extractor = PDFExtractor(pdf_path, backend="pymupdf")
+        snippets = extractor.extract()
+
+        assert len(snippets) == 1
+        assert snippets[0]["page"] == 1
+        assert "sample text from the page" in snippets[0]["snippet"]
+
+    @patch("rx_pagemarker.pdf_extractor.HAS_PYMUPDF", True)
+    @patch("rx_pagemarker.pdf_extractor.fitz")
+    def test_extract_with_pymupdf_insufficient_text(self, mock_fitz, tmp_path):
+        """Test extraction when page has insufficient text."""
+        pdf_path = tmp_path / "test.pdf"
+        pdf_path.write_bytes(b"fake pdf")
+
+        mock_page = MagicMock()
+        mock_page.get_text.return_value = "a b"  # Only 2 words
+
+        mock_doc = MagicMock()
+        mock_doc.__len__.return_value = 1
+        mock_doc.__getitem__.return_value = mock_page
+        mock_doc.__enter__.return_value = mock_doc
+        mock_doc.__exit__.return_value = None
+
+        mock_fitz.open.return_value = mock_doc
+
+        extractor = PDFExtractor(pdf_path, backend="pymupdf", min_words=3)
+        snippets = extractor.extract()
+
+        assert len(snippets) == 1
+        assert snippets[0]["snippet"] == "PASTE_TEXT_FROM_END_OF_PAGE_HERE"
+        assert "Insufficient text" in snippets[0]["note"]
+
+    @patch("rx_pagemarker.pdf_extractor.HAS_PDFPLUMBER", True)
+    @patch("rx_pagemarker.pdf_extractor.pdfplumber")
+    def test_extract_with_pdfplumber_success(self, mock_pdfplumber, tmp_path):
+        """Test successful extraction using pdfplumber."""
+        pdf_path = tmp_path / "test.pdf"
+        pdf_path.write_bytes(b"fake pdf")
+
+        mock_page = MagicMock()
+        mock_page.extract_text.return_value = "This is sample text from the page."
+
+        mock_pdf = MagicMock()
+        mock_pdf.pages = [mock_page]
+        mock_pdf.__enter__.return_value = mock_pdf
+        mock_pdf.__exit__.return_value = None
+
+        mock_pdfplumber.open.return_value = mock_pdf
+
+        extractor = PDFExtractor(pdf_path, backend="pdfplumber")
+        snippets = extractor.extract()
+
+        assert len(snippets) == 1
+        assert snippets[0]["page"] == 1
+        assert "sample text from the page" in snippets[0]["snippet"]
+
+
+class TestPDFExtractorSaveToJson:
+    """Test JSON saving functionality."""
+
+    def test_save_to_json_success(self, tmp_path):
+        """Test successful JSON saving."""
+        output_path = tmp_path / "output.json"
+        snippets = [
+            {"page": 1, "snippet": "test snippet one"},
+            {"page": 2, "snippet": "test snippet two"},
+        ]
+
+        extractor = PDFExtractor("dummy.pdf")
+        extractor.save_to_json(output_path, snippets)
+
+        assert output_path.exists()
+        with open(output_path, "r", encoding="utf-8") as f:
+            loaded = json.load(f)
+        assert loaded == snippets
+
+    def test_save_to_json_with_greek_text(self, tmp_path):
+        """Test JSON saving with Greek text."""
+        output_path = tmp_path / "output.json"
+        snippets = [{"page": 1, "snippet": "Ελληνικό κείμενο"}]
+
+        extractor = PDFExtractor("dummy.pdf")
+        extractor.save_to_json(output_path, snippets)
+
+        with open(output_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        assert "Ελληνικό κείμενο" in content
+
+    def test_save_to_json_invalid_path(self):
+        """Test that PDFExtractionError is raised for invalid path."""
+        extractor = PDFExtractor("dummy.pdf")
+        invalid_path = "/nonexistent/directory/output.json"
+
+        with pytest.raises(PDFExtractionError, match="Error saving JSON"):
+            extractor.save_to_json(invalid_path, [])
+
+
+class TestValidateSnippets:
+    """Test snippet validation functionality."""
+
+    def test_validate_snippets_basic(self, tmp_path):
+        """Test basic snippet validation."""
+        json_path = tmp_path / "snippets.json"
+        snippets = [
+            {"page": 1, "snippet": "unique snippet one"},
+            {"page": 2, "snippet": "unique snippet two"},
+        ]
+
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(snippets, f)
+
+        results = validate_snippets(json_path)
+
+        assert results["total_snippets"] == 2
+        assert results["unique_snippets"] == 2
+        assert results["placeholder_count"] == 0
+        assert len(results["duplicate_snippets"]) == 0
+
+    def test_validate_snippets_with_duplicates(self, tmp_path):
+        """Test validation detects duplicate snippets."""
+        json_path = tmp_path / "snippets.json"
+        snippets = [
+            {"page": 1, "snippet": "same snippet"},
+            {"page": 2, "snippet": "same snippet"},
+            {"page": 3, "snippet": "unique snippet"},
+        ]
+
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(snippets, f)
+
+        results = validate_snippets(json_path)
+
+        assert results["total_snippets"] == 3
+        assert results["unique_snippets"] == 2
+        assert results["duplicate_snippets"]["same snippet"] == 2
+
+    def test_validate_snippets_with_placeholders(self, tmp_path):
+        """Test validation counts placeholders."""
+        json_path = tmp_path / "snippets.json"
+        snippets = [
+            {"page": 1, "snippet": "PASTE_TEXT_FROM_END_OF_PAGE_HERE"},
+            {"page": 2, "snippet": "real snippet"},
+        ]
+
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(snippets, f)
+
+        results = validate_snippets(json_path)
+
+        assert results["placeholder_count"] == 1
+
+    def test_validate_snippets_with_html(self, tmp_path):
+        """Test validation against HTML file."""
+        json_path = tmp_path / "snippets.json"
+        html_path = tmp_path / "book.html"
+
+        snippets = [
+            {"page": 1, "snippet": "text in html"},
+            {"page": 2, "snippet": "not in html"},
+        ]
+
+        html_content = "<html><body>This text in html is present.</body></html>"
+
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(snippets, f)
+
+        with open(html_path, "w", encoding="utf-8") as f:
+            f.write(html_content)
+
+        results = validate_snippets(json_path, html_path)
+
+        assert len(results["missing_from_html"]) == 1
+        assert 2 in results["missing_from_html"]
+        assert results["html_match_rate"] == 0.5
+
+    def test_validate_snippets_invalid_json(self, tmp_path):
+        """Test that PDFExtractionError is raised for invalid JSON."""
+        json_path = tmp_path / "invalid.json"
+        json_path.write_text("not valid json{]")
+
+        with pytest.raises(PDFExtractionError, match="Error loading JSON"):
+            validate_snippets(json_path)
+
+    def test_validate_snippets_nonexistent_file(self):
+        """Test that PDFExtractionError is raised for nonexistent file."""
+        with pytest.raises(PDFExtractionError, match="Error loading JSON"):
+            validate_snippets("/nonexistent/file.json")
+
+
+class TestPrintValidationResults:
+    """Test validation results printing."""
+
+    def test_print_validation_results_basic(self, capsys):
+        """Test basic validation results output."""
+        results = {
+            "total_snippets": 10,
+            "unique_snippets": 9,
+            "placeholder_count": 1,
+            "duplicate_snippets": {},
+        }
+
+        print_validation_results(results)
+        captured = capsys.readouterr()
+
+        assert "Total snippets:      10" in captured.out
+        assert "Unique snippets:     9" in captured.out
+        assert "Needs manual entry:  1" in captured.out
+
+    def test_print_validation_results_with_duplicates(self, capsys):
+        """Test validation results with duplicates."""
+        results = {
+            "total_snippets": 5,
+            "unique_snippets": 3,
+            "placeholder_count": 0,
+            "duplicate_snippets": {"duplicate text": 2},
+        }
+
+        print_validation_results(results)
+        captured = capsys.readouterr()
+
+        assert "Duplicate snippets found" in captured.out
+
+    def test_print_validation_results_ready_to_use(self, capsys):
+        """Test output when snippets are ready to use."""
+        results = {
+            "total_snippets": 10,
+            "unique_snippets": 10,
+            "placeholder_count": 0,
+            "duplicate_snippets": {},
+            "html_match_rate": 1.0,
+        }
+
+        print_validation_results(results)
+        captured = capsys.readouterr()
+
+        assert "Ready to use" in captured.out
