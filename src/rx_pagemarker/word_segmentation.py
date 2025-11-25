@@ -7,6 +7,7 @@ where spaces are missing, using language-specific dictionaries and algorithms.
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 import unicodedata
+import importlib.resources
 
 
 class WordSegmenter:
@@ -31,47 +32,46 @@ class WordSegmenter:
             raise ValueError(f"Unsupported language: {self.language}")
 
     def _load_greek_dictionary(self) -> None:
-        """Load Greek word dictionary.
+        """Load Greek word dictionary from frequency list.
 
-        For now, we'll use a basic Greek word list. In production, this could
-        load from a file or package resource.
+        Loads from package resource data/greek_words.txt containing ~10k most
+        frequent Greek words from Hermit Dave's frequency lists.
+        Falls back to basic dictionary if file not found.
         """
-        # Basic Greek common words and morphological forms
-        # This is a starter set - in production would load from comprehensive dictionary
-        basic_greek_words = {
-            # Common articles, conjunctions, prepositions
-            "ο", "η", "το", "οι", "τα", "των", "του", "της", "τον", "την",
-            "και", "ή", "αλλά", "με", "από", "για", "στο", "στη", "στον", "στην",
-            "που", "ότι", "αυτό", "αυτή", "αυτός", "αυτά", "αυτές", "αυτοί",
-            "είναι", "ήταν", "θα", "να", "δεν", "μη", "μην",
-            "πως", "σε", "ως", "ενώ", "όταν", "αν", "όπως",
+        try:
+            # Try to load from package resource
+            if hasattr(importlib.resources, 'files'):
+                # Python 3.9+
+                data_path = importlib.resources.files('rx_pagemarker').joinpath('data/greek_words.txt')
+                with data_path.open('r', encoding='utf-8') as f:
+                    words = {line.strip() for line in f if line.strip()}
+            else:
+                # Python 3.7-3.8 fallback
+                import pkg_resources
+                resource_path = pkg_resources.resource_filename('rx_pagemarker', 'data/greek_words.txt')
+                with open(resource_path, 'r', encoding='utf-8') as f:
+                    words = {line.strip() for line in f if line.strip()}
 
-            # Common verbs
-            "έχει", "έχουν", "είχε", "έχω", "έχεις",
-            "γίνεται", "γίνονται", "έγινε", "γίνει",
-            "μπορεί", "μπορούν", "μπορώ",
+            self.dictionary = self._expand_greek_morphology(words)
+            self.max_word_length = max(len(w) for w in self.dictionary) if self.dictionary else 0
 
-            # Common nouns - Economics related
-            "οικονομία", "οικονομικός", "οικονομική", "οικονομικό", "οικονομικά",
-            "μακροοικονομική", "μακροοικονομικής", "μακροοικονομικό",
-            "πληθωρισμός", "πληθωρισμό", "πληθωρισμού",
-            "ανεργία", "ανεργίας",
-            "παραγωγή", "παραγωγής",
-            "κατανάλωση", "κατανάλωσης",
-            "επένδυση", "επενδύσεις",
-            "αγορά", "αγοράς", "αγορές",
-            "τιμές", "τιμών", "τιμή",
-            "προϊόν", "προϊόντος", "προϊόντα",
+        except (FileNotFoundError, ModuleNotFoundError, AttributeError):
+            # Fallback to basic hardcoded dictionary
+            basic_greek_words = {
+                # Common articles, conjunctions, prepositions
+                "ο", "η", "το", "οι", "τα", "των", "του", "της", "τον", "την",
+                "και", "ή", "αλλά", "με", "από", "για", "στο", "στη", "στον", "στην",
+                "που", "ότι", "αυτό", "αυτή", "αυτός", "αυτά", "αυτές", "αυτοί",
+                "είναι", "ήταν", "θα", "να", "δεν", "μη", "μην",
+                "πως", "σε", "ως", "ενώ", "όταν", "αν", "όπως",
 
-            # More common words
-            "στην", "στον", "από", "για", "προς", "μετά", "πριν",
-            "πάνω", "κάτω", "μέσα", "έξω", "εδώ", "εκεί",
-            "τώρα", "τότε", "πάντα", "ποτέ", "πολύ", "λίγο",
-        }
-
-        # Add common morphological variations
-        self.dictionary = self._expand_greek_morphology(basic_greek_words)
-        self.max_word_length = max(len(w) for w in self.dictionary) if self.dictionary else 0
+                # Common verbs
+                "έχει", "έχουν", "είχε", "έχω", "έχεις",
+                "γίνεται", "γίνονται", "έγινε", "γίνει",
+                "μπορεί", "μπορούν", "μπορώ",
+            }
+            self.dictionary = self._expand_greek_morphology(basic_greek_words)
+            self.max_word_length = max(len(w) for w in self.dictionary) if self.dictionary else 0
 
     def _expand_greek_morphology(self, base_words: Set[str]) -> Set[str]:
         """Expand base words with common Greek morphological variations."""

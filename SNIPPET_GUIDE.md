@@ -202,9 +202,26 @@ Fix these before continuing.
 - Use a more unique phrase
 - Include proper names or numbers
 
-## Advanced: Semi-Automated Extraction
+## Recommended: Automated PDF Extraction
 
-You can use tools to help extract snippets:
+Instead of manual snippet creation, use the built-in PDF extraction:
+
+```bash
+# Basic extraction (fastest)
+rx-pagemarker extract book.pdf snippets.json
+
+# For PDFs with missing spaces between words
+rx-pagemarker extract book.pdf snippets.json --match-html book.html --review
+
+# Then validate before using
+rx-pagemarker validate snippets.json --html book.html
+```
+
+See the README for complete extraction documentation.
+
+## Alternative: Semi-Automated Extraction
+
+If automated extraction doesn't work:
 
 ### From PDF (using pdftotext)
 ```bash
@@ -221,12 +238,13 @@ Recommended structure:
 ```
 project/
 ├── book.html                    # Your HTML file
-├── book.pdf                     # Reference PDF
+├── book.pdf                     # Reference PDF (for extraction)
 ├── page_references.json         # Your mapping file
-├── page_marker.py              # The script
 └── output/
     └── book_with_pages.html    # Generated output
 ```
+
+Note: After installing the package (`pip install -e ".[pdf,dev]"`), the `rx-pagemarker` command is available system-wide.
 
 ## Quick Reference Template
 

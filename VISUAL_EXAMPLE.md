@@ -130,7 +130,7 @@ Page 3 of 50 → Find text at bottom of this view
 After creating your JSON file, test with a small sample:
 
 ```bash
-python page_marker.py sample_book.html page_references.json test.html
+rx-pagemarker mark sample_book.html page_references.json test.html
 ```
 
 You'll see output like:

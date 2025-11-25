@@ -123,6 +123,8 @@ This matches the PDF text (without spaces) against your HTML file (with correct 
 
 **Performance Note:** HTML matching is more accurate but slower for large documents (664+ pages). The algorithm is currently being optimized.
 
+**Dictionary Size:** The Greek word segmentation now uses ~10k most frequent words from Hermit Dave's frequency lists, providing comprehensive coverage for modern Greek text.
+
 #### Step 2: Validate Extracted Snippets
 
 ```bash
@@ -316,8 +318,9 @@ Review Mode Output:
 **Symptoms:** Many snippets show confidence <0.7
 
 **For Word Segmentation:**
-- Limited dictionary coverage (currently ~50 Greek words)
-- Solution: Being expanded in future updates
+- Dictionary covers ~10k most common Greek words
+- Some rare morphological forms may not be recognized
+- Continuous improvements to algorithm and dictionary coverage
 
 **For HTML Matching:**
 - HTML content doesn't match PDF content exactly
@@ -335,14 +338,20 @@ Review Mode Output:
 ## Future Enhancements
 
 - **Optimize HTML matching algorithm**: Reduce time from minutes to seconds for large documents
-- **Expand Greek dictionary**: Add 5k-10k common words for better segmentation accuracy
-- **Multi-language support**: Add dictionaries for other languages
+- **Multi-language support**: Add frequency-based dictionaries for other languages (English, French, etc.)
 - **Context matching**: Use surrounding text to disambiguate duplicate snippets
 - **Interactive mode**: Preview matches before insertion
 - **Batch processing**: Process multiple HTML files at once
 - **Smart snippet refinement**: Auto-adjust snippets that appear multiple times in the document
 - **OCR support**: Extract from image-based PDFs using Tesseract
 - **Neural word segmentation**: Train ML model on HTML/PDF pairs for language-agnostic segmentation
+
+## Project Structure
+
+- **`tests/`** - Automated test suite (pytest) for code verification
+- **`examples/`** - Sample files for users to learn and test the tool
+- **`src/rx_pagemarker/`** - Main package source code
+  - **`data/`** - Dictionary files (Greek word frequency list)
 
 ## Project Context
 

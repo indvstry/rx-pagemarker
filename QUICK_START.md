@@ -26,19 +26,42 @@ Your project now contains:
 ### Tests
 - **`tests/`** - Comprehensive pytest test suite
 
-## Getting Started in 3 Steps
+## Getting Started
 
 ### Step 1: Install (One Time Only)
 
 ```bash
+# With PDF extraction support (recommended)
+pip install -e ".[pdf,dev]"
+
+# Or without PDF extraction (manual workflow only)
 pip install -e ".[dev]"
 ```
 
 This installs the `rx-pagemarker` command and all dependencies.
 
-### Step 2: Generate a Template
+### Step 2: Choose Your Workflow
 
-Save time by generating a pre-filled JSON template:
+#### Option A: Automated PDF Extraction (Recommended & Fastest)
+
+Extract snippets automatically from your PDF:
+
+```bash
+# Basic extraction
+rx-pagemarker extract book.pdf snippets.json
+
+# For PDFs with missing spaces (Quark→InDesign→PDF conversions)
+rx-pagemarker extract book.pdf snippets.json --match-html book.html --review
+
+# Validate the extracted snippets
+rx-pagemarker validate snippets.json --html book.html
+```
+
+Then skip to Step 3.
+
+#### Option B: Manual Template Generation
+
+If automated extraction doesn't work, generate a template:
 
 ```bash
 rx-pagemarker generate 50 my_book.json
@@ -57,7 +80,7 @@ This creates a JSON file with 50 placeholder entries. Then:
 
 **Alternative:** Create the JSON manually (see `SNIPPET_GUIDE.md`)
 
-### Step 2b: For Books with Front Matter
+#### Option B (continued): For Books with Front Matter
 
 If your book has Roman numeral pages (i, ii, iii...) for front matter:
 

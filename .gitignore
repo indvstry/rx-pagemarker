@@ -39,6 +39,10 @@ test_output.html
 test_*.json
 test_*.html
 
+# Test data and temporary extractions
+chapter*.json
+/tmp/*.json
+
 # Your actual book files (adjust as needed)
 # book.html
 # book.pdf

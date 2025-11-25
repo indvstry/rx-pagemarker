@@ -57,7 +57,7 @@ Issues = "https://github.com/ariskaratarakis/rx-pagemarker/issues"
 where = ["src"]
 
 [tool.setuptools.package-data]
-rx_pagemarker = ["py.typed"]
+rx_pagemarker = ["py.typed", "data/*.txt"]
 
 # ============================================================================
 # PYTEST CONFIGURATION
