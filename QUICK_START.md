@@ -15,8 +15,8 @@ Your project now contains:
 - **`setup.sh`** - One-click installation script
 
 ### Example Files
-- **`sample_book.html`** - Example HTML file
-- **`page_references_example.json`** - Example mapping file
+- **`examples/sample_book.html`** - Example HTML file
+- **`examples/page_references_example.json`** - Example mapping file
 
 ### Documentation
 - **`README.md`** - Complete documentation

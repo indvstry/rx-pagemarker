@@ -58,9 +58,8 @@ These markers enable EPUB page-list navigation, citation compatibility with prin
 - `cli.py` - Click-based command-line interface
 - `marker.py` - Page marker insertion logic (DOM-aware snippet matching)
 - `template.py` - JSON template generation
-- `extractor.py` - PDF text extraction with multiple backends
-- `validator.py` - Snippet validation and duplicate detection
-- `word_segmenter.py` - Dictionary-based word boundary reconstruction
+- `pdf_extractor.py` - PDF text extraction with multiple backends
+- `word_segmentation.py` - Dictionary-based word boundary reconstruction
 - `html_matcher.py` - HTML-based word boundary correction
 
 ### Workflows

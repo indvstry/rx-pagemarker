@@ -4,7 +4,7 @@ This module provides functionality to reconstruct word boundaries in text
 where spaces are missing, using language-specific dictionaries and algorithms.
 """
 
-from pathlib import Path
+import warnings
 from typing import Dict, List, Optional, Set, Tuple
 import unicodedata
 import importlib.resources
@@ -46,7 +46,7 @@ class WordSegmenter:
                 with data_path.open('r', encoding='utf-8') as f:
                     words = {line.strip() for line in f if line.strip()}
             else:
-                # Python 3.7-3.8 fallback
+                # Python 3.8 fallback (pkg_resources for older importlib.resources)
                 import pkg_resources
                 resource_path = pkg_resources.resource_filename('rx_pagemarker', 'data/greek_words.txt')
                 with open(resource_path, 'r', encoding='utf-8') as f:
@@ -54,8 +54,18 @@ class WordSegmenter:
 
             self.dictionary = self._expand_greek_morphology(words)
             self.max_word_length = max(len(w) for w in self.dictionary) if self.dictionary else 0
+            self._using_fallback = False
 
-        except (FileNotFoundError, ModuleNotFoundError, AttributeError):
+        except (FileNotFoundError, ModuleNotFoundError, AttributeError, OSError, TypeError) as e:
+            # Warn user about degraded functionality
+            warnings.warn(
+                f"Failed to load Greek dictionary ({e}). "
+                f"Using minimal 50-word fallback - word segmentation accuracy significantly reduced. "
+                f"Reinstall package to fix: pip install --force-reinstall rx-pagemarker",
+                UserWarning,
+                stacklevel=2
+            )
+            self._using_fallback = True
             # Fallback to basic hardcoded dictionary
             basic_greek_words = {
                 # Common articles, conjunctions, prepositions
