@@ -38,7 +38,15 @@ These markers enable EPUB page-list navigation, citation compatibility with prin
 - Greek language support with extensible framework
 - Two extraction strategies: `end_of_page` (fast) and `bottom_visual` (layout-aware)
 
-## Current Status (as of 2025-11-24)
+### Phase 5: Production PDF Support (commit: f13700d)
+- **InDesign metadata filtering**: Auto-excludes sluglines (`file.indd 123`) and timestamps
+- **Dehyphenation**: Rejoins words split across lines for better HTML matching
+- **Text normalization**: Handles spacing around punctuation and slashes
+- **Improved validation**: Strips HTML tags before comparing, normalizes whitespace
+- **CLI options**: `--exclude-pattern` for custom patterns, `--no-default-excludes`
+- Tested on 272-page two-column legal magazine: 78.6% content match rate
+
+## Current Status (as of 2025-01-13)
 
 ### Production Ready
 - ✅ Full CLI tool with professional packaging
@@ -47,10 +55,15 @@ These markers enable EPUB page-list navigation, citation compatibility with prin
 - ✅ Expanded Greek dictionary (~10k most frequent words from Hermit Dave's lists)
 - ✅ Comprehensive validation and reporting
 - ✅ Strong test coverage
+- ✅ **Production metadata filtering** - Auto-removes InDesign sluglines and timestamps
+- ✅ **Two-column PDF support** - Tested with 272-page legal magazine (78.6% match rate)
+- ✅ **Dehyphenation** - Rejoins words split across lines
+- ✅ **Improved validation** - Strips HTML tags before comparing snippets
 
 ### Known Issues
 - **HTML matching performance**: Slow for 500+ page PDFs (several minutes)
 - **Morphological coverage**: Some rare Greek word forms not in top-10k frequency list
+- **Text normalization**: ~20% of snippets may not match due to subtle spacing/character differences
 
 ## Architecture
 
