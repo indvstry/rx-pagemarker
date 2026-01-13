@@ -46,6 +46,15 @@ These markers enable EPUB page-list navigation, citation compatibility with prin
 - **CLI options**: `--exclude-pattern` for custom patterns, `--no-default-excludes`
 - Tested on 272-page two-column legal magazine: 78.6% content match rate
 
+### Phase 6: Magazine Support & Word Completion
+- **Page offset**: `--page-offset N` for magazines with continuing page numbers
+- **Footnote filtering**: `--skip-footnotes` with `--min-font-size` to exclude small text
+- **Partial word completion**: Automatically completes cut-off words using HTML reference
+  - "σύγ" at end of snippet becomes "σύγχυση" if found in HTML
+  - Page marker is placed AFTER the complete word, not mid-word
+  - Enabled by default when `--match-html` is provided
+- Unicode-aware word boundary detection for Greek and other scripts
+
 ## Current Status (as of 2025-01-13)
 
 ### Production Ready
@@ -54,11 +63,14 @@ These markers enable EPUB page-list navigation, citation compatibility with prin
 - ✅ Advanced text reconstruction for broken PDFs
 - ✅ Expanded Greek dictionary (~10k most frequent words from Hermit Dave's lists)
 - ✅ Comprehensive validation and reporting
-- ✅ Strong test coverage
+- ✅ Strong test coverage (55 tests)
 - ✅ **Production metadata filtering** - Auto-removes InDesign sluglines and timestamps
 - ✅ **Two-column PDF support** - Tested with 272-page legal magazine (78.6% match rate)
 - ✅ **Dehyphenation** - Rejoins words split across lines
 - ✅ **Improved validation** - Strips HTML tags before comparing snippets
+- ✅ **Page offset support** - For magazines with continuing page numbers (`--page-offset`)
+- ✅ **Footnote filtering** - Skip small font text with `--skip-footnotes`
+- ✅ **Partial word completion** - Completes cut-off words using HTML reference
 
 ### Known Issues
 - **HTML matching performance**: Slow for 500+ page PDFs (several minutes)

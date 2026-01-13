@@ -137,7 +137,19 @@ class PDFExtractor:
             for pattern in exclude_patterns:
                 self.exclude_patterns.append(re.compile(pattern, re.IGNORECASE))
 
-        # Initialize HTML matcher if provided
+        # Load HTML content for word completion if path provided
+        self.html_text: Optional[str] = None
+        if self.match_html_path:
+            try:
+                with open(self.match_html_path, "r", encoding="utf-8") as f:
+                    html_content = f.read()
+                # Strip HTML tags for text matching
+                self.html_text = re.sub(r"<[^>]+>", "", html_content)
+                self.html_text = re.sub(r"\s+", " ", self.html_text)
+            except Exception as e:
+                print(f"⚠ Warning: Could not load HTML for word completion: {e}")
+
+        # Initialize HTML matcher if provided (for fuzzy matching)
         self.html_matcher: Optional["HTMLMatcher"] = None
         if self.match_html_path:
             try:
@@ -215,13 +227,15 @@ class PDFExtractor:
         dehyphenated = re.sub(r"(\w)-\s+(\w)", r"\1\2", text)
         return dehyphenated
 
-    def _clean_snippet(self, snippet: str) -> str:
+    def _clean_snippet(self, snippet: str, html_text: Optional[str] = None) -> str:
         """Clean up snippet for better matching.
 
         Removes trailing incomplete words and normalizes spacing for better HTML matching.
+        If HTML text is provided, attempts to complete partial words at the end.
 
         Args:
             snippet: Raw snippet text
+            html_text: Optional HTML text content for word completion
 
         Returns:
             Cleaned snippet
@@ -231,7 +245,56 @@ class PDFExtractor:
         # Normalize spacing around slashes and punctuation
         cleaned = re.sub(r"\s+/\s*", "/", cleaned)  # "word / word" -> "word/word"
         cleaned = re.sub(r"\s*/\s+", "/", cleaned)  # Also handle "word/ word"
-        return cleaned.strip()
+        cleaned = cleaned.strip()
+
+        # Try to complete partial words at the end if HTML is available
+        if html_text and cleaned:
+            cleaned = self._complete_partial_word(cleaned, html_text)
+
+        return cleaned
+
+    def _complete_partial_word(self, snippet: str, html_text: str) -> str:
+        """Complete partial word at end of snippet by finding full word in HTML.
+
+        If snippet ends with incomplete word like "σύγ", finds the complete
+        word "σύγχυση" in HTML and replaces it.
+
+        Args:
+            snippet: Snippet potentially ending with partial word
+            html_text: HTML text to search for complete word
+
+        Returns:
+            Snippet with last word completed if possible
+        """
+        words = snippet.split()
+        if not words:
+            return snippet
+
+        last_word = words[-1]
+
+        # Check if last word exists in HTML as-is (as whole word, not substring)
+        # Use lookahead/lookbehind that work with Unicode by checking for space/boundary
+        word_pattern = r'(?:^|[\s])' + re.escape(last_word) + r'(?:[\s.,;:!?\)]|$)'
+        if re.search(word_pattern, html_text):
+            return snippet
+
+        # Last word not found as complete word - try to find complete word
+        # Search for words starting with last_word followed by more letters
+        # Use [\s] or start-of-string to mark word boundary (Unicode-safe)
+        pattern = r'(?:^|[\s])' + re.escape(last_word) + r'(\w+)'
+        match = re.search(pattern, html_text, re.UNICODE)
+
+        if match:
+            # Found complete word
+            complete_word = last_word + match.group(1)
+            words[-1] = complete_word
+            return " ".join(words)
+
+        # If still not found and word is very short, it might be a fragment - remove it
+        if len(last_word) < 4 and last_word[-1] not in '.,;:!?)»"\'':
+            return " ".join(words[:-1])
+
+        return snippet
 
     def _extract_body_text_pymupdf(self, page: "fitz.Page") -> str:
         """Extract only body text from page, skipping footnotes based on font size.
@@ -341,8 +404,8 @@ class PDFExtractor:
 
             snippet = " ".join(words[-self.snippet_words :])
 
-            # Clean up trailing incomplete words
-            snippet = self._clean_snippet(snippet)
+            # Clean up trailing incomplete words and complete partial words from HTML
+            snippet = self._clean_snippet(snippet, self.html_text)
 
             # Apply HTML matching if available (highest priority)
             if self.html_matcher:
@@ -456,8 +519,8 @@ class PDFExtractor:
 
             snippet = " ".join(words[-self.snippet_words :])
 
-            # Clean up trailing incomplete words
-            snippet = self._clean_snippet(snippet)
+            # Clean up trailing incomplete words and complete partial words from HTML
+            snippet = self._clean_snippet(snippet, self.html_text)
 
             # Apply HTML matching if available (highest priority)
             if self.html_matcher:

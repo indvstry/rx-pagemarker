@@ -357,3 +357,75 @@ class TestPrintValidationResults:
         captured = capsys.readouterr()
 
         assert "Ready to use" in captured.out
+
+
+class TestWordCompletion:
+    """Test word completion functionality for snippets ending with partial words."""
+
+    def test_complete_partial_word_finds_full_word(self):
+        """Test that partial word at end of snippet is completed from HTML."""
+        extractor = PDFExtractor("test.pdf")
+        html_text = "Η απόφαση αυτή βασίζεται στην σύγχυση που δημιουργήθηκε"
+        snippet = "βασίζεται στην σύγ"
+
+        result = extractor._complete_partial_word(snippet, html_text)
+
+        assert result == "βασίζεται στην σύγχυση"
+
+    def test_complete_partial_word_no_change_when_word_exists(self):
+        """Test that complete words are not modified."""
+        extractor = PDFExtractor("test.pdf")
+        html_text = "Η απόφαση αυτή βασίζεται στην σύγχυση"
+        snippet = "βασίζεται στην σύγχυση"
+
+        result = extractor._complete_partial_word(snippet, html_text)
+
+        assert result == "βασίζεται στην σύγχυση"
+
+    def test_complete_partial_word_removes_short_fragment(self):
+        """Test that very short fragments (< 4 chars) are removed if not found."""
+        extractor = PDFExtractor("test.pdf")
+        html_text = "Η απόφαση αυτή"
+        snippet = "Η απόφαση αβγ"  # "αβγ" not in HTML
+
+        result = extractor._complete_partial_word(snippet, html_text)
+
+        assert result == "Η απόφαση"
+
+    def test_complete_partial_word_keeps_punctuation(self):
+        """Test that words ending with punctuation are kept."""
+        extractor = PDFExtractor("test.pdf")
+        html_text = "Η απόφαση."
+        snippet = "Η απόφαση."
+
+        result = extractor._complete_partial_word(snippet, html_text)
+
+        assert result == "Η απόφαση."
+
+    def test_clean_snippet_with_html_text(self):
+        """Test _clean_snippet completes partial words when HTML is provided."""
+        extractor = PDFExtractor("test.pdf")
+        html_text = "Η σύγχυση είναι μεγάλη"
+        snippet = "Η σύγ"
+
+        result = extractor._clean_snippet(snippet, html_text)
+
+        assert result == "Η σύγχυση"
+
+    def test_clean_snippet_without_html_text(self):
+        """Test _clean_snippet works normally without HTML."""
+        extractor = PDFExtractor("test.pdf")
+        snippet = "word1 word2 word3"
+
+        result = extractor._clean_snippet(snippet, None)
+
+        assert result == "word1 word2 word3"
+
+    def test_clean_snippet_removes_trailing_hyphenated_word(self):
+        """Test that trailing word fragments with hyphens are removed."""
+        extractor = PDFExtractor("test.pdf")
+        snippet = "complete word another frag-"
+
+        result = extractor._clean_snippet(snippet, None)
+
+        assert result == "complete word another"
