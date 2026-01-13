@@ -54,6 +54,10 @@ These markers enable EPUB page-list navigation, citation compatibility with prin
   - Page marker is placed AFTER the complete word, not mid-word
   - `--complete-words HTML`: Fast word completion only (recommended)
   - `--match-html HTML`: Slow fuzzy matching + word completion
+- **Context-based correction**: Fixes merged words in middle of snippets
+  - Finds anchor sequences of 2-3 correctly-extracted words in HTML
+  - Extracts correct surrounding context to replace corrupted snippet
+  - Improved match rate from 71.8% to 98.9% on test magazine
 - Unicode-aware word boundary detection for Greek and other scripts
 
 ## Current Status (as of 2025-01-13)
@@ -64,14 +68,15 @@ These markers enable EPUB page-list navigation, citation compatibility with prin
 - ✅ Advanced text reconstruction for broken PDFs
 - ✅ Expanded Greek dictionary (~10k most frequent words from Hermit Dave's lists)
 - ✅ Comprehensive validation and reporting
-- ✅ Strong test coverage (55 tests)
+- ✅ Strong test coverage (58 tests)
 - ✅ **Production metadata filtering** - Auto-removes InDesign sluglines and timestamps
-- ✅ **Two-column PDF support** - Tested with 272-page legal magazine (78.6% match rate)
+- ✅ **Magazine PDF support** - Tested with 272-page legal magazine (98.9% match rate)
 - ✅ **Dehyphenation** - Rejoins words split across lines
 - ✅ **Improved validation** - Strips HTML tags before comparing snippets
 - ✅ **Page offset support** - For magazines with continuing page numbers (`--page-offset`)
 - ✅ **Footnote filtering** - Skip small font text with `--skip-footnotes`
 - ✅ **Partial word completion** - Completes cut-off words using HTML (`--complete-words`)
+- ✅ **Context-based correction** - Fixes merged words using anchor sequences from HTML
 
 ### Known Issues
 - **HTML matching performance**: Slow for 500+ page PDFs (several minutes)
