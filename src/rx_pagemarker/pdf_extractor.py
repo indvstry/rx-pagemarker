@@ -1,10 +1,20 @@
 """PDF text extraction for automatic snippet generation."""
 
 import json
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Union
 
 from .word_segmentation import segment_snippet
+
+# Common patterns for production metadata to exclude from snippets
+# These appear in professional PDFs from InDesign, Acrobat, etc.
+DEFAULT_EXCLUDE_PATTERNS = [
+    # InDesign sluglines: "XRDD 4:2025 SEL.indd 818" - starts with uppercase/number
+    r"[A-Z0-9][A-Za-z0-9\s:./\-]*\.indd\s+\d+",
+    # Timestamps: "5/1/26 2:15 PM"
+    r"\d{1,2}/\d{1,2}/\d{2,4}\s+\d{1,2}:\d{2}\s*(AM|PM)?",
+]
 
 if TYPE_CHECKING:
     import fitz
@@ -68,6 +78,8 @@ class PDFExtractor:
         segment_words: bool = False,
         language: str = "el",
         match_html_path: Optional[Union[str, Path]] = None,
+        exclude_patterns: Optional[List[str]] = None,
+        use_default_excludes: bool = True,
     ) -> None:
         """Initialize PDF extractor.
 
@@ -82,6 +94,9 @@ class PDFExtractor:
             segment_words: Enable word boundary reconstruction for PDFs with missing spaces
             language: Language code for word segmentation (e.g., 'el' for Greek)
             match_html_path: Optional path to HTML file for matching-based correction
+            exclude_patterns: Regex patterns to exclude from text (e.g., InDesign sluglines)
+            use_default_excludes: Whether to use default exclude patterns for common
+                production metadata (InDesign sluglines, timestamps)
 
         Raises:
             InvalidParameterError: If snippet_words or min_words are invalid
@@ -106,6 +121,15 @@ class PDFExtractor:
         self.segment_words = segment_words
         self.language = language
         self.match_html_path = Path(match_html_path) if match_html_path else None
+
+        # Build list of exclude patterns
+        self.exclude_patterns: List[re.Pattern[str]] = []
+        if use_default_excludes:
+            for pattern in DEFAULT_EXCLUDE_PATTERNS:
+                self.exclude_patterns.append(re.compile(pattern, re.IGNORECASE))
+        if exclude_patterns:
+            for pattern in exclude_patterns:
+                self.exclude_patterns.append(re.compile(pattern, re.IGNORECASE))
 
         # Initialize HTML matcher if provided
         self.html_matcher: Optional["HTMLMatcher"] = None
@@ -147,6 +171,61 @@ class PDFExtractor:
             "insufficient_text": 0,
             "failed": 0,
         }
+
+    def _filter_production_metadata(self, text: str) -> str:
+        """Remove production metadata (InDesign sluglines, timestamps, etc.) from text.
+
+        Args:
+            text: Raw text extracted from PDF page
+
+        Returns:
+            Text with production metadata removed
+        """
+        if not self.exclude_patterns:
+            return text
+
+        filtered = text
+        for pattern in self.exclude_patterns:
+            filtered = pattern.sub("", filtered)
+
+        # Clean up extra whitespace from removals
+        filtered = re.sub(r"\s+", " ", filtered).strip()
+        return filtered
+
+    def _dehyphenate(self, text: str) -> str:
+        """Remove soft hyphens from line-break hyphenation in PDF text.
+
+        PDFs often have words split across lines with hyphens (e.g., "δικαι- ολογούσα").
+        This rejoins them to match the clean HTML text (e.g., "δικαιολογούσα").
+
+        Args:
+            text: Text with potential line-break hyphens
+
+        Returns:
+            Text with hyphenated words rejoined
+        """
+        # Pattern: word ending with hyphen, followed by whitespace/newline, then continuation
+        # Matches: "word- continuation" or "word-\ncontinuation"
+        dehyphenated = re.sub(r"(\w)-\s+(\w)", r"\1\2", text)
+        return dehyphenated
+
+    def _clean_snippet(self, snippet: str) -> str:
+        """Clean up snippet for better matching.
+
+        Removes trailing incomplete words and normalizes spacing for better HTML matching.
+
+        Args:
+            snippet: Raw snippet text
+
+        Returns:
+            Cleaned snippet
+        """
+        # Remove trailing word fragments ending with hyphen
+        cleaned = re.sub(r"\s+\S+-$", "", snippet)
+        # Normalize spacing around slashes and punctuation
+        cleaned = re.sub(r"\s+/\s*", "/", cleaned)  # "word / word" -> "word/word"
+        cleaned = re.sub(r"\s*/\s+", "/", cleaned)  # Also handle "word/ word"
+        return cleaned.strip()
 
     def extract_with_pymupdf(self) -> List[Dict[str, Any]]:
         """Extract snippets using PyMuPDF (fast, good layout analysis).
@@ -199,6 +278,12 @@ class PDFExtractor:
                 # Get all text
                 text = page.get_text()
 
+            # Filter out production metadata (InDesign sluglines, etc.)
+            text = self._filter_production_metadata(text)
+
+            # Rejoin hyphenated words split across lines
+            text = self._dehyphenate(text)
+
             # Extract snippet
             words = text.split()
 
@@ -211,6 +296,9 @@ class PDFExtractor:
                 }
 
             snippet = " ".join(words[-self.snippet_words :])
+
+            # Clean up trailing incomplete words
+            snippet = self._clean_snippet(snippet)
 
             # Apply HTML matching if available (highest priority)
             if self.html_matcher:
@@ -305,6 +393,12 @@ class PDFExtractor:
             else:  # end_of_page
                 text = page.extract_text() or ""
 
+            # Filter out production metadata (InDesign sluglines, etc.)
+            text = self._filter_production_metadata(text)
+
+            # Rejoin hyphenated words split across lines
+            text = self._dehyphenate(text)
+
             # Extract snippet
             words = text.split()
 
@@ -317,6 +411,9 @@ class PDFExtractor:
                 }
 
             snippet = " ".join(words[-self.snippet_words :])
+
+            # Clean up trailing incomplete words
+            snippet = self._clean_snippet(snippet)
 
             # Apply HTML matching if available (highest priority)
             if self.html_matcher:
@@ -469,11 +566,19 @@ def validate_snippets(
             with open(html_path, "r", encoding="utf-8") as f:
                 html_content = f.read()
 
+            # Strip HTML tags for text comparison (snippets won't have tags)
+            text_content = re.sub(r"<[^>]+>", "", html_content)
+            # Normalize whitespace
+            text_content = re.sub(r"\s+", " ", text_content)
+            # Normalize spacing around slashes (same as snippet cleaning)
+            text_content = re.sub(r"\s+/\s*", "/", text_content)
+            text_content = re.sub(r"\s*/\s+", "/", text_content)
+
             missing = []
             for item in snippets:
                 snippet = item.get("snippet", "")
                 if snippet and snippet != "PASTE_TEXT_FROM_END_OF_PAGE_HERE":
-                    if snippet not in html_content:
+                    if snippet not in text_content:
                         missing.append(item["page"])
 
             results["missing_from_html"] = missing

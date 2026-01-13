@@ -159,6 +159,19 @@ def generate(num_pages: int, output_file: Path, start_page: int, roman: bool) ->
     default=None,
     help="HTML file to match against for correcting word boundaries",
 )
+@click.option(
+    "--exclude-pattern",
+    "-x",
+    type=str,
+    multiple=True,
+    help="Regex pattern to exclude from text (e.g., production metadata). Can be used multiple times.",
+)
+@click.option(
+    "--no-default-excludes",
+    is_flag=True,
+    default=False,
+    help="Disable default exclusion patterns (InDesign sluglines, timestamps)",
+)
 def extract(
     pdf_file: Path,
     output_json: Path,
@@ -171,6 +184,8 @@ def extract(
     language: str,
     review: bool,
     match_html: Optional[Path],
+    exclude_pattern: tuple,
+    no_default_excludes: bool,
 ) -> None:
     """Extract text snippets from PDF file for page marker generation.
 
@@ -223,6 +238,8 @@ def extract(
             segment_words=segment_words,
             language=language,
             match_html_path=match_html,
+            exclude_patterns=list(exclude_pattern) if exclude_pattern else None,
+            use_default_excludes=not no_default_excludes,
         )
 
         # Extract snippets
