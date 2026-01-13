@@ -52,7 +52,8 @@ These markers enable EPUB page-list navigation, citation compatibility with prin
 - **Partial word completion**: Automatically completes cut-off words using HTML reference
   - "σύγ" at end of snippet becomes "σύγχυση" if found in HTML
   - Page marker is placed AFTER the complete word, not mid-word
-  - Enabled by default when `--match-html` is provided
+  - `--complete-words HTML`: Fast word completion only (recommended)
+  - `--match-html HTML`: Slow fuzzy matching + word completion
 - Unicode-aware word boundary detection for Greek and other scripts
 
 ## Current Status (as of 2025-01-13)
@@ -70,7 +71,7 @@ These markers enable EPUB page-list navigation, citation compatibility with prin
 - ✅ **Improved validation** - Strips HTML tags before comparing snippets
 - ✅ **Page offset support** - For magazines with continuing page numbers (`--page-offset`)
 - ✅ **Footnote filtering** - Skip small font text with `--skip-footnotes`
-- ✅ **Partial word completion** - Completes cut-off words using HTML reference
+- ✅ **Partial word completion** - Completes cut-off words using HTML (`--complete-words`)
 
 ### Known Issues
 - **HTML matching performance**: Slow for 500+ page PDFs (several minutes)
