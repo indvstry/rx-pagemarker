@@ -57,6 +57,7 @@ These markers enable EPUB page-list navigation, citation compatibility with prin
   - Extracts correct surrounding context to replace corrupted snippet
   - Improved match rate from 71.8% to 98.9% on test magazine
 - **Simplified CLI**: `--html` for word completion (fast), `--match-html` for fuzzy matching (slow)
+- **CSS injection**: `--inject-css` flag on `mark` command for visible page markers in browser
 - Unicode-aware word boundary detection for Greek and other scripts
 
 ## Current Status (as of 2025-01-13)
@@ -76,6 +77,7 @@ These markers enable EPUB page-list navigation, citation compatibility with prin
 - ✅ **Footnote filtering** - Skip small font text with `--skip-footnotes`
 - ✅ **Partial word completion** - Completes cut-off words using HTML (`--complete-words`)
 - ✅ **Context-based correction** - Fixes merged words using anchor sequences from HTML
+- ✅ **CSS injection** - `--inject-css` for visible page markers in browser
 
 ### Known Issues
 - **HTML matching performance**: Slow for 500+ page PDFs (several minutes)
@@ -106,8 +108,11 @@ rx-pagemarker extract magazine.pdf snippets.json --html mag.html --start-page 7 
 # Validate snippets
 rx-pagemarker validate snippets.json --html book.html
 
-# Insert markers
+# Insert markers (invisible markers by default for EPUB)
 rx-pagemarker mark book.html snippets.json output.html
+
+# Or with visible markers for previewing in browser
+rx-pagemarker mark book.html snippets.json output.html --inject-css
 ```
 
 #### Workflow 2: Manual
