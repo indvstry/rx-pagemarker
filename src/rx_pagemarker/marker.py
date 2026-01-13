@@ -150,9 +150,21 @@ class PageMarkerInserter:
             ]
         )
 
+        # Container types we search through
+        container_types = [
+            "p", "div", "td", "th", "li", "dd", "dt",
+            "h1", "h2", "h3", "h4", "h5", "h6",
+            "blockquote", "aside", "article", "section",
+        ]
+
         for container in containers:
             # Skip containers within script, style, etc.
             if container.find_parent(["script", "style", "head"]):
+                continue
+
+            # Skip parent containers - only use most specific (leaf) containers
+            # If this container has child containers of the same types, skip it
+            if container.find(container_types):
                 continue
 
             # Get combined text from this container (strips all tags)
