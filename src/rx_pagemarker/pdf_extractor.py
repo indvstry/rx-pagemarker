@@ -314,9 +314,9 @@ class PDFExtractor:
             words[-1] = complete_word
             return " ".join(words)
 
-        # If hyphenated, keep the stem without the hyphen for matching
+        # Completion failed - keep stem and add FIXME marker for manual review
         if is_hyphenated:
-            words[-1] = word_stem
+            words[-1] = word_stem + "<!-- FIXME -->"
             return " ".join(words)
 
         # Return snippet as-is if no completion found
