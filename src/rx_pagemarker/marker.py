@@ -56,7 +56,8 @@ class PageMarkerInserter:
         try:
             with open(self.html_path, "r", encoding="utf-8") as f:
                 content = f.read()
-            self.soup = BeautifulSoup(content, "lxml")
+            # Use html.parser to preserve original formatting (lxml reorders attributes)
+            self.soup = BeautifulSoup(content, "html.parser")
             print(f"✓ Loaded HTML from {self.html_path}")
         except FileNotFoundError:
             print(f"✗ Error: HTML file not found: {self.html_path}")
@@ -301,7 +302,8 @@ class PageMarkerInserter:
 
         try:
             with open(self.output_path, "w", encoding="utf-8") as f:
-                f.write(str(self.soup))
+                # Use formatter="minimal" to preserve original whitespace and attributes
+                f.write(self.soup.decode(formatter="minimal"))
             print(f"\n✓ Saved output to {self.output_path}")
         except Exception as e:
             print(f"\n✗ Error saving output: {e}")
