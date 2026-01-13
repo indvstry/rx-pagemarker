@@ -49,16 +49,22 @@ These markers enable EPUB page-list navigation, citation compatibility with prin
 ### Phase 6: Magazine Support & Smart Correction
 - **Page offset**: `--page-offset N` for magazines with continuing page numbers
 - **Footnote filtering**: Skipped by default (`--include-footnotes` to include)
-- **Partial word completion**: Completes cut-off words using HTML (`--html`)
+- **Partial word completion**: Completes cut-off words using HTML
   - "σύγ" at end of snippet becomes "σύγχυση" if found in HTML
   - Page marker placed AFTER the complete word
 - **Context-based correction**: Fixes merged words in middle of snippets
   - Finds anchor sequences of 2-3 correctly-extracted words in HTML
   - Extracts correct surrounding context to replace corrupted snippet
   - Improved match rate from 71.8% to 98.9% on test magazine
-- **Simplified CLI**: `--html` for word completion (fast), `--match-html` for fuzzy matching (slow)
 - **CSS injection**: `--inject-css` flag on `mark` command for visible page markers in browser
 - Unicode-aware word boundary detection for Greek and other scripts
+
+### Phase 7: CLI Simplification (2025-01-13)
+- **HTML now default**: HTML file is a required positional argument (enables word completion by default)
+- **New CLI syntax**: `rx-pagemarker extract book.pdf snippets.json book.html`
+- **`--raw-pdf` flag**: Opt-out of HTML correction for faster but less accurate extraction
+- **`--fuzzy-match` flag**: Replaces `--match-html` for slow fuzzy matching on corrupted PDFs
+- **Better error messages**: Clear guidance when HTML file is missing
 
 ## Current Status (as of 2025-01-13)
 
@@ -98,12 +104,18 @@ These markers enable EPUB page-list navigation, citation compatibility with prin
 
 #### Workflow 1: Automated (Recommended)
 ```bash
-# Extract snippets from PDF (footnotes skipped by default)
-# --html enables word completion and context correction for best results
-rx-pagemarker extract book.pdf snippets.json --html book.html
+# Extract snippets from PDF with HTML correction (default, recommended)
+# HTML file is required for word completion and context correction
+rx-pagemarker extract book.pdf snippets.json book.html
 
 # For magazines with page offset (PDF page 7 = print page 775)
-rx-pagemarker extract magazine.pdf snippets.json --html mag.html --start-page 7 --page-offset 768
+rx-pagemarker extract magazine.pdf snippets.json mag.html --start-page 7 --page-offset 768
+
+# Raw PDF extraction without HTML (faster but less accurate)
+rx-pagemarker extract book.pdf snippets.json --raw-pdf
+
+# For heavily corrupted PDFs, use fuzzy matching (slow)
+rx-pagemarker extract book.pdf snippets.json book.html --fuzzy-match
 
 # Validate snippets
 rx-pagemarker validate snippets.json --html book.html

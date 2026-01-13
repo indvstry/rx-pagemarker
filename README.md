@@ -67,22 +67,34 @@ There are two workflows: **automated PDF extraction** (recommended) or **manual 
 
 ### Workflow 1: Automated PDF Extraction (Recommended)
 
-The fastest way to get started is to automatically extract snippets directly from your PDF:
+The fastest way to get started is to automatically extract snippets directly from your PDF.
 
 #### Step 1: Extract Snippets from PDF
 
 ```bash
-# Basic extraction - uses best available backend (PyMuPDF > pdfplumber)
-rx-pagemarker extract book.pdf snippets.json
-
-# Extract with custom settings
-rx-pagemarker extract book.pdf snippets.json --words 8 --strategy bottom_visual
+# Standard usage - PDF + JSON output + HTML reference (recommended)
+rx-pagemarker extract book.pdf snippets.json book.html
 
 # Extract specific page range (useful for testing)
-rx-pagemarker extract book.pdf snippets.json --start-page 1 --end-page 50
+rx-pagemarker extract book.pdf snippets.json book.html --start-page 1 --end-page 50
+
+# Magazine with page offset (PDF page 7 = print page 507)
+rx-pagemarker extract magazine.pdf snippets.json magazine.html --start-page 7 --page-offset 500
 
 # Use pdfplumber for complex layouts with tables/columns
-rx-pagemarker extract book.pdf snippets.json --backend pdfplumber
+rx-pagemarker extract book.pdf snippets.json book.html --backend pdfplumber
+```
+
+**Why HTML is required by default:**
+The HTML file is used to correct and complete extracted text:
+- Completes hyphenated words at line breaks (e.g., `λό-` → `λόγω`)
+- Fixes spacing and quote character differences
+- Ensures snippets match the HTML exactly for reliable marker insertion
+
+**Raw PDF mode (no HTML):**
+```bash
+# If you don't have an HTML file, use --raw-pdf (less accurate)
+rx-pagemarker extract book.pdf snippets.json --raw-pdf
 ```
 
 **Extraction Strategies:**
@@ -94,36 +106,47 @@ rx-pagemarker extract book.pdf snippets.json --backend pdfplumber
 - `pymupdf` - Fast C-based extraction, excellent for large files (500+ pages)
 - `pdfplumber` - Better layout analysis, handles tables and columns well
 
+**Footnotes:**
+- By default, footnotes are **skipped** (uses font size filtering)
+- Use `--include-footnotes` to include footnote text
+- Use `--min-font-size` to adjust the threshold (default: 8.5pt)
+
 **Note:** Supports Greek and all Unicode text natively.
 
 #### Advanced: Handling PDFs with Spacing Issues
 
-Some PDFs (especially from Quark→InDesign→PDF conversions) have broken text encoding where spaces between words are missing. The tool provides two strategies to handle this:
+Some PDFs (especially from Quark→InDesign→PDF conversions) have broken text encoding where spaces between words are missing. The tool provides additional strategies:
 
-**Option 1: Word Segmentation** (Dictionary-based)
+**Option 1: Fuzzy Matching** (For heavily corrupted PDFs)
+
+```bash
+# Use slow fuzzy matching for complex layouts
+rx-pagemarker extract book.pdf snippets.json book.html --fuzzy-match --review
+```
+
+This uses fuzzy string matching to find the best match in HTML. Slower but more robust for heavily corrupted text.
+
+**Option 2: Word Segmentation** (Dictionary-based, no HTML needed)
 
 ```bash
 # Enable word boundary reconstruction using Greek dictionary
-rx-pagemarker extract book.pdf snippets.json --segment-words --review
+rx-pagemarker extract book.pdf snippets.json --raw-pdf --segment-words --review
 
 # Use with different language (currently supports: el=Greek)
-rx-pagemarker extract book.pdf snippets.json --segment-words --language el --review
+rx-pagemarker extract book.pdf snippets.json --raw-pdf --segment-words --language el --review
 ```
 
 This uses a dictionary-based algorithm to reconstruct word boundaries. The `--review` flag shows confidence scores so you can identify snippets that may need manual correction.
 
-**Option 2: HTML Matching** (Recommended for best results)
+**Performance Comparison:**
 
-```bash
-# Match against your clean HTML to get perfect word boundaries
-rx-pagemarker extract book.pdf snippets.json --match-html book.html --review
-```
+| Mode | Speed (272 pages) | Accuracy |
+|------|-------------------|----------|
+| Standard (with HTML) | ~30-60 seconds | High |
+| `--raw-pdf` | ~2 seconds | Lower (may not match HTML) |
+| `--fuzzy-match` | ~5-10 minutes | Highest (for corrupted PDFs) |
 
-This matches the PDF text (without spaces) against your HTML file (with correct spacing) to reconstruct accurate word boundaries. Best results when the HTML contains the same content as the PDF.
-
-**Performance Note:** HTML matching is more accurate but slower for large documents (664+ pages). The algorithm is currently being optimized.
-
-**Dictionary Size:** The Greek word segmentation now uses ~10k most frequent words from Hermit Dave's frequency lists, providing comprehensive coverage for modern Greek text.
+**Dictionary Size:** The Greek word segmentation uses ~10k most frequent words from Hermit Dave's frequency lists, providing comprehensive coverage for modern Greek text.
 
 #### Step 2: Validate Extracted Snippets
 
@@ -261,18 +284,21 @@ These markers:
 ```
 PDF Extraction
 │
-├─ Normal PDF (text has spaces)
-│  └─> Use basic extraction
-│      rx-pagemarker extract book.pdf snippets.json
+├─ Have clean HTML with same content? (RECOMMENDED)
+│  └─> YES: Use standard extraction
+│      rx-pagemarker extract book.pdf snippets.json book.html
 │
-└─ Broken PDF (missing spaces between words)
+├─ No HTML file available?
+│  └─> Use raw PDF mode
+│      rx-pagemarker extract book.pdf snippets.json --raw-pdf
+│
+└─ Heavily corrupted PDF (missing spaces)?
    │
-   ├─ Have clean HTML with same content?
-   │  └─> YES: Use HTML matching (best accuracy)
-   │     rx-pagemarker extract book.pdf snippets.json --match-html book.html --review
+   ├─ Have HTML? → Use fuzzy matching
+   │  rx-pagemarker extract book.pdf snippets.json book.html --fuzzy-match --review
    │
-   └─ NO: Use word segmentation (partial reconstruction)
-      rx-pagemarker extract book.pdf snippets.json --segment-words --review
+   └─ No HTML? → Use word segmentation
+      rx-pagemarker extract book.pdf snippets.json --raw-pdf --segment-words --review
 
 Review Mode Output:
 ├─ High confidence (>0.7): Ready to use
@@ -298,20 +324,21 @@ Review Mode Output:
 **Cause:** PDF encoding issue, common in Quark→InDesign→PDF conversions
 
 **Solutions:**
-1. **Best:** Use `--match-html` flag if you have clean HTML with the same content
-2. **Good:** Use `--segment-words` flag for dictionary-based reconstruction
-3. **Fallback:** Manual template generation (see Workflow 2)
+1. **Best:** Use standard extraction with HTML file (default behavior)
+2. **Better:** Use `--fuzzy-match` flag for heavily corrupted PDFs
+3. **Good:** Use `--raw-pdf --segment-words` for dictionary-based reconstruction
+4. **Fallback:** Manual template generation (see Workflow 2)
 
-### HTML Matching is Slow
+### Fuzzy Matching is Slow
 
-**Symptoms:** Extraction with `--match-html` takes several minutes for 500+ page PDFs
+**Symptoms:** Extraction with `--fuzzy-match` takes several minutes for 500+ page PDFs
 
 **Status:** Known performance issue, optimization in progress
 
 **Workarounds:**
-1. Process smaller page ranges: `--start-page 1 --end-page 50`
-2. Use word segmentation instead: `--segment-words`
-3. Consider manual workflow for time-sensitive projects
+1. Use standard extraction (without `--fuzzy-match`) - usually sufficient
+2. Process smaller page ranges: `--start-page 1 --end-page 50`
+3. Use word segmentation instead: `--raw-pdf --segment-words`
 
 ### Low Confidence Scores in Review Mode
 

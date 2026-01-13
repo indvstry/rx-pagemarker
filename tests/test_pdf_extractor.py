@@ -382,15 +382,27 @@ class TestWordCompletion:
 
         assert result == "βασίζεται στην σύγχυση"
 
-    def test_complete_partial_word_removes_short_fragment(self):
-        """Test that very short fragments (< 4 chars) are removed if not found."""
+    def test_complete_partial_word_keeps_unknown_words(self):
+        """Test that unknown words are kept (never removed)."""
         extractor = PDFExtractor("test.pdf")
         html_text = "Η απόφαση αυτή"
-        snippet = "Η απόφαση αβγ"  # "αβγ" not in HTML
+        snippet = "Η απόφαση αβγ"  # "αβγ" not in HTML - should be kept
 
         result = extractor._complete_partial_word(snippet, html_text)
 
-        assert result == "Η απόφαση"
+        # Words that can't be completed should be kept as-is (never removed)
+        assert result == "Η απόφαση αβγ"
+
+    def test_complete_partial_word_adds_fixme_for_uncompletable_hyphenated(self):
+        """Test that hyphenated words that can't be completed get FIXME marker."""
+        extractor = PDFExtractor("test.pdf")
+        html_text = "some completely different text"
+        snippet = "word1 word2 frag-"  # "frag-" cannot be completed from HTML
+
+        result = extractor._complete_partial_word(snippet, html_text)
+
+        # Should keep the stem and add FIXME marker for manual review
+        assert result == "word1 word2 frag<!-- FIXME -->"
 
     def test_complete_partial_word_keeps_punctuation(self):
         """Test that words ending with punctuation are kept."""
@@ -421,14 +433,15 @@ class TestWordCompletion:
 
         assert result == "word1 word2 word3"
 
-    def test_clean_snippet_removes_trailing_hyphenated_word(self):
-        """Test that trailing word fragments with hyphens are removed."""
+    def test_clean_snippet_keeps_trailing_hyphenated_word(self):
+        """Test that trailing word fragments with hyphens are kept (never removed)."""
         extractor = PDFExtractor("test.pdf")
         snippet = "complete word another frag-"
 
         result = extractor._clean_snippet(snippet, None)
 
-        assert result == "complete word another"
+        # Hyphenated words are kept as-is when no HTML is provided (never removed)
+        assert result == "complete word another frag-"
 
 
 class TestContextCorrection:

@@ -105,6 +105,19 @@ def generate(num_pages: int, output_file: Path, start_page: int, roman: bool) ->
 @cli.command()
 @click.argument("pdf_file", type=click.Path(exists=True, path_type=Path))
 @click.argument("output_json", type=click.Path(path_type=Path))
+@click.argument("html_file", type=click.Path(exists=True, path_type=Path), required=False)
+@click.option(
+    "--raw-pdf",
+    is_flag=True,
+    default=False,
+    help="Extract raw PDF text without HTML correction (no HTML file needed)",
+)
+@click.option(
+    "--fuzzy-match",
+    is_flag=True,
+    default=False,
+    help="Use slow fuzzy matching for complex layouts (requires HTML file)",
+)
 @click.option(
     "--words",
     "-w",
@@ -161,19 +174,7 @@ def generate(num_pages: int, output_file: Path, start_page: int, roman: bool) ->
     "--review",
     is_flag=True,
     default=False,
-    help="Show confidence scores for manual review (requires --segment-words)",
-)
-@click.option(
-    "--match-html",
-    type=click.Path(exists=True, path_type=Path),
-    default=None,
-    help="HTML file for fuzzy matching (slow but accurate for complex layouts)",
-)
-@click.option(
-    "--html",
-    type=click.Path(exists=True, path_type=Path),
-    default=None,
-    help="HTML file for word completion and context correction (recommended)",
+    help="Show confidence scores for manual review",
 )
 @click.option(
     "--exclude-pattern",
@@ -203,6 +204,9 @@ def generate(num_pages: int, output_file: Path, start_page: int, roman: bool) ->
 def extract(
     pdf_file: Path,
     output_json: Path,
+    html_file: Optional[Path],
+    raw_pdf: bool,
+    fuzzy_match: bool,
     words: int,
     strategy: str,
     backend: str,
@@ -212,8 +216,6 @@ def extract(
     segment_words: bool,
     language: str,
     review: bool,
-    match_html: Optional[Path],
-    html: Optional[Path],
     exclude_pattern: tuple,
     no_default_excludes: bool,
     include_footnotes: bool,
@@ -221,11 +223,14 @@ def extract(
 ) -> None:
     """Extract text snippets from PDF file for page marker generation.
 
-    Automatically extracts text snippets from the end of each PDF page
-    and saves them to a JSON file. This eliminates the need to manually
-    copy snippets from your PDF.
+    By default, requires an HTML file to correct and complete extracted text.
+    Use --raw-pdf to extract without HTML correction.
 
-    The extraction supports Greek and other Unicode text natively.
+    \b
+    Arguments:
+      PDF_FILE     - Source PDF file
+      OUTPUT_JSON  - Output JSON file for snippets
+      HTML_FILE    - HTML file for text correction (required unless --raw-pdf)
 
     \b
     Strategies:
@@ -240,24 +245,49 @@ def extract(
 
     \b
     Examples:
-      # Basic usage - extract all pages (footnotes skipped by default)
-      rx-pagemarker extract book.pdf snippets.json
-
-      # Recommended: provide HTML for word completion and context correction
-      rx-pagemarker extract book.pdf snippets.json --html book.html
+      # Standard usage with HTML correction (recommended)
+      rx-pagemarker extract book.pdf snippets.json book.html
 
       # Magazine with page offset (PDF page 7 = print page 507)
-      rx-pagemarker extract magazine.pdf snippets.json --html mag.html --start-page 7 --page-offset 500
+      rx-pagemarker extract magazine.pdf snippets.json mag.html --start-page 7 --page-offset 500
+
+      # Raw PDF extraction without HTML (faster but less accurate)
+      rx-pagemarker extract book.pdf snippets.json --raw-pdf
+
+      # Use slow fuzzy matching for heavily corrupted PDFs
+      rx-pagemarker extract book.pdf snippets.json book.html --fuzzy-match
 
       # Extract with 8 words per snippet using pdfplumber
-      rx-pagemarker extract book.pdf snippets.json -w 8 -b pdfplumber
+      rx-pagemarker extract book.pdf snippets.json book.html -w 8 -b pdfplumber
 
       # Include footnotes (normally skipped)
-      rx-pagemarker extract book.pdf snippets.json --include-footnotes
-
-      # Use slow fuzzy matching for complex layouts
-      rx-pagemarker extract book.pdf snippets.json --match-html book.html
+      rx-pagemarker extract book.pdf snippets.json book.html --include-footnotes
     """
+    # Validate HTML file requirement
+    if not raw_pdf and html_file is None:
+        click.echo(
+            "Error: HTML_FILE is required for text correction.\n"
+            "Either provide an HTML file or use --raw-pdf for raw extraction.\n\n"
+            "Examples:\n"
+            "  rx-pagemarker extract book.pdf snippets.json book.html\n"
+            "  rx-pagemarker extract book.pdf snippets.json --raw-pdf",
+            err=True,
+        )
+        sys.exit(1)
+
+    if fuzzy_match and html_file is None:
+        click.echo(
+            "Error: --fuzzy-match requires an HTML file.",
+            err=True,
+        )
+        sys.exit(1)
+
+    if raw_pdf and html_file is not None:
+        click.echo(
+            "Warning: --raw-pdf ignores the HTML file argument.",
+            err=True,
+        )
+
     try:
         extractor = PDFExtractor(
             pdf_file,
@@ -266,12 +296,12 @@ def extract(
             strategy=strategy,
             segment_words=segment_words,
             language=language,
-            match_html_path=match_html,
+            match_html_path=html_file if fuzzy_match else None,
             exclude_patterns=list(exclude_pattern) if exclude_pattern else None,
             use_default_excludes=not no_default_excludes,
             skip_footnotes=not include_footnotes,  # Skip by default, include if flag set
             min_font_size=min_font_size,
-            complete_words_html_path=html,
+            complete_words_html_path=html_file if (not fuzzy_match and not raw_pdf) else None,
         )
 
         # Extract snippets
