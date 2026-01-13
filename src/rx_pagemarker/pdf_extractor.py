@@ -262,6 +262,15 @@ class PDFExtractor:
         if html_text and cleaned:
             cleaned = self._complete_partial_word(cleaned, html_text)
 
+            # Only run context correction if snippet doesn't match HTML as-is
+            # (indicates merged words that need fixing)
+            if cleaned not in html_text:
+                corrected, was_corrected = self._correct_snippet_from_context(
+                    cleaned, html_text, target_words=self.snippet_words
+                )
+                if was_corrected:
+                    cleaned = corrected
+
         return cleaned
 
     def _complete_partial_word(self, snippet: str, html_text: str) -> str:
@@ -348,8 +357,9 @@ class PDFExtractor:
             for i in range(len(words) - anchor_len + 1):
                 anchor = " ".join(words[i : i + anchor_len])
 
-                # Search for this anchor in HTML
-                pos = html_text.find(anchor)
+                # Search for this anchor in HTML (use rfind to get LAST occurrence,
+                # since summaries/abstracts appear first and we want the main body)
+                pos = html_text.rfind(anchor)
                 if pos == -1:
                     continue
 
