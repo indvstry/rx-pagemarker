@@ -429,3 +429,48 @@ class TestWordCompletion:
         result = extractor._clean_snippet(snippet, None)
 
         assert result == "complete word another"
+
+
+class TestContextCorrection:
+    """Test context-based correction for merged words in snippets."""
+
+    def test_correct_merged_words_in_middle(self):
+        """Test that merged words in the middle of snippet are corrected."""
+        extractor = PDFExtractor("test.pdf")
+        html_text = "δεν επάγονται καμία συνέπεια ουσιαστικού ή δικονομικού δικαίου"
+        # Simulated PDF extraction with merged word "ουσιαστιστην" instead of "ουσιαστικού στην"
+        snippet = "επάγονται καμία συνέπεια ουσιαστιστην"
+
+        result, was_corrected = extractor._correct_snippet_from_context(
+            snippet, html_text, target_words=10
+        )
+
+        assert was_corrected
+        assert "ουσιαστικού" in result
+        assert "ουσιαστιστην" not in result
+
+    def test_no_correction_when_no_anchor_found(self):
+        """Test that snippet is unchanged when no anchor sequence is found."""
+        extractor = PDFExtractor("test.pdf")
+        html_text = "completely different text here"
+        snippet = "some random words"
+
+        result, was_corrected = extractor._correct_snippet_from_context(
+            snippet, html_text, target_words=10
+        )
+
+        assert not was_corrected
+        assert result == snippet
+
+    def test_finds_anchor_with_2_words(self):
+        """Test that 2-word anchors are found when 3-word anchors fail."""
+        extractor = PDFExtractor("test.pdf")
+        html_text = "η απόφαση του δικαστηρίου είναι τελεσίδικη"
+        snippet = "wrongword απόφαση του wrongword2"
+
+        result, was_corrected = extractor._correct_snippet_from_context(
+            snippet, html_text, target_words=6
+        )
+
+        assert was_corrected
+        assert "απόφαση του δικαστηρίου" in result

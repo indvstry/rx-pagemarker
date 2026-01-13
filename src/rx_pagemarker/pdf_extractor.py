@@ -263,6 +263,13 @@ class PDFExtractor:
         if html_text and cleaned:
             cleaned = self._complete_partial_word(cleaned, html_text)
 
+            # Try context-based correction for merged words in the middle
+            corrected, was_corrected = self._correct_snippet_from_context(
+                cleaned, html_text, target_words=self.snippet_words
+            )
+            if was_corrected:
+                cleaned = corrected
+
         return cleaned
 
     def _complete_partial_word(self, snippet: str, html_text: str) -> str:
@@ -307,6 +314,70 @@ class PDFExtractor:
             return " ".join(words[:-1])
 
         return snippet
+
+    def _correct_snippet_from_context(
+        self, snippet: str, html_text: str, target_words: int = 10
+    ) -> tuple[str, bool]:
+        """Correct snippet by finding anchor words in HTML and extracting context.
+
+        When PDF extraction produces merged words (e.g., "ουσιαστιστην" instead of
+        "ουσιαστικού στην"), this method finds sequences of correctly-extracted words
+        in the HTML and uses them as anchors to extract the correct surrounding text.
+
+        Args:
+            snippet: Potentially corrupted snippet from PDF
+            html_text: Clean HTML text to search in
+            target_words: Number of words to extract from HTML
+
+        Returns:
+            Tuple of (corrected_snippet, was_corrected)
+        """
+        words = snippet.split()
+        if len(words) < 3:
+            return snippet, False
+
+        # Try to find anchor sequences of 2-3 consecutive words
+        for anchor_len in [3, 2]:
+            for i in range(len(words) - anchor_len + 1):
+                anchor = " ".join(words[i : i + anchor_len])
+
+                # Search for this anchor in HTML
+                pos = html_text.find(anchor)
+                if pos == -1:
+                    continue
+
+                # Found anchor! Extract surrounding context
+                # Find word boundaries around the match
+                start = pos
+                end = pos + len(anchor)
+
+                # Expand backwards to get more words
+                words_before = 0
+                while start > 0 and words_before < (target_words - anchor_len) // 2:
+                    start -= 1
+                    if html_text[start] == " ":
+                        words_before += 1
+
+                # Expand forwards to get more words
+                words_after = 0
+                while end < len(html_text) and words_after < (
+                    target_words - anchor_len - words_before
+                ):
+                    if html_text[end] == " ":
+                        words_after += 1
+                    end += 1
+
+                # Extract and clean the corrected snippet
+                corrected = html_text[start:end].strip()
+                corrected_words = corrected.split()
+
+                # Take last target_words words (end of page)
+                if len(corrected_words) > target_words:
+                    corrected = " ".join(corrected_words[-target_words:])
+
+                return corrected, True
+
+        return snippet, False
 
     def _extract_body_text_pymupdf(self, page: "fitz.Page") -> str:
         """Extract only body text from page, skipping footnotes based on font size.
