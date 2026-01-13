@@ -242,7 +242,7 @@ class PDFExtractor:
     def _clean_snippet(self, snippet: str, html_text: Optional[str] = None) -> str:
         """Clean up snippet for better matching.
 
-        Removes trailing incomplete words and normalizes spacing for better HTML matching.
+        Completes trailing hyphenated words and normalizes spacing for better HTML matching.
         If HTML text is provided, attempts to complete partial words at the end.
 
         Args:
@@ -252,31 +252,23 @@ class PDFExtractor:
         Returns:
             Cleaned snippet
         """
-        # Remove trailing word fragments ending with hyphen
-        cleaned = re.sub(r"\s+\S+-$", "", snippet)
+        cleaned = snippet.strip()
+
         # Normalize spacing around slashes and punctuation
         cleaned = re.sub(r"\s+/\s*", "/", cleaned)  # "word / word" -> "word/word"
         cleaned = re.sub(r"\s*/\s+", "/", cleaned)  # Also handle "word/ word"
-        cleaned = cleaned.strip()
 
-        # Try to complete partial words at the end if HTML is available
+        # Try to complete partial/hyphenated words at the end if HTML is available
         if html_text and cleaned:
             cleaned = self._complete_partial_word(cleaned, html_text)
-
-            # Try context-based correction for merged words in the middle
-            corrected, was_corrected = self._correct_snippet_from_context(
-                cleaned, html_text, target_words=self.snippet_words
-            )
-            if was_corrected:
-                cleaned = corrected
 
         return cleaned
 
     def _complete_partial_word(self, snippet: str, html_text: str) -> str:
         """Complete partial word at end of snippet by finding full word in HTML.
 
-        If snippet ends with incomplete word like "σύγ", finds the complete
-        word "σύγχυση" in HTML and replaces it.
+        If snippet ends with incomplete word like "σύγ" or "λό-", finds the complete
+        word "σύγχυση" or "λόγω" in HTML using context to find the right occurrence.
 
         Args:
             snippet: Snippet potentially ending with partial word
@@ -291,28 +283,43 @@ class PDFExtractor:
 
         last_word = words[-1]
 
-        # Check if last word exists in HTML as-is (as whole word, not substring)
-        # Use lookahead/lookbehind that work with Unicode by checking for space/boundary
-        word_pattern = r'(?:^|[\s])' + re.escape(last_word) + r'(?:[\s.,;:!?\)]|$)'
-        if re.search(word_pattern, html_text):
-            return snippet
+        # Handle hyphenated word endings like "λό-" -> search for "λό"
+        word_stem = last_word.rstrip("-")
+        is_hyphenated = last_word.endswith("-")
 
-        # Last word not found as complete word - try to find complete word
-        # Search for words starting with last_word followed by more letters
-        # Use [\s] or start-of-string to mark word boundary (Unicode-safe)
-        pattern = r'(?:^|[\s])' + re.escape(last_word) + r'(\w+)'
+        # Check if last word exists in HTML as-is (as whole word, not substring)
+        if not is_hyphenated:
+            word_pattern = r'(?:^|[\s])' + re.escape(last_word) + r'(?:[\s.,;:!?\)]|$)'
+            if re.search(word_pattern, html_text):
+                return snippet
+
+        # Use context (previous words) to find the correct completion
+        # Build context pattern from last 2-3 words before the incomplete word
+        if len(words) >= 2:
+            # Try with 2 words of context
+            context = " ".join(words[-2:-1])  # word before last
+            context_pattern = re.escape(context) + r'\s+' + re.escape(word_stem) + r'(\w+)'
+            match = re.search(context_pattern, html_text, re.UNICODE)
+            if match:
+                complete_word = word_stem + match.group(1)
+                words[-1] = complete_word
+                return " ".join(words)
+
+        # Fallback: search without context (first occurrence)
+        pattern = r'(?:^|[\s])' + re.escape(word_stem) + r'(\w+)'
         match = re.search(pattern, html_text, re.UNICODE)
 
         if match:
-            # Found complete word
-            complete_word = last_word + match.group(1)
+            complete_word = word_stem + match.group(1)
             words[-1] = complete_word
             return " ".join(words)
 
-        # If still not found and word is very short, it might be a fragment - remove it
-        if len(last_word) < 4 and last_word[-1] not in '.,;:!?)»"\'':
-            return " ".join(words[:-1])
+        # If hyphenated, keep the stem without the hyphen for matching
+        if is_hyphenated:
+            words[-1] = word_stem
+            return " ".join(words)
 
+        # Return snippet as-is if no completion found
         return snippet
 
     def _correct_snippet_from_context(

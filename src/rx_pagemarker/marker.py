@@ -201,10 +201,12 @@ class PageMarkerInserter:
         elif len(matches) > 1:
             self.stats["multiple_matches"] += 1
             print(
-                f"  ⚠ Warning: Snippet found in {len(matches)} locations, using first occurrence"
+                f"  ⚠ Warning: Snippet found in {len(matches)} locations, using last occurrence"
             )
 
-        return matches[0]
+        # Use last occurrence - summaries/abstracts appear first in HTML,
+        # so the actual page break location is typically the last match
+        return matches[-1]
 
     def insert_page_marker(self, page_number: Union[str, int], snippet: str) -> bool:
         """Insert a page marker after the specified snippet.
