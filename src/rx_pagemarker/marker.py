@@ -20,6 +20,7 @@ class PageMarkerInserter:
         html_path: Union[str, Path],
         json_path: Union[str, Path],
         output_path: Optional[Union[str, Path]] = None,
+        inject_css: bool = False,
     ) -> None:
         """Initialize the page marker inserter.
 
@@ -27,6 +28,7 @@ class PageMarkerInserter:
             html_path: Path to input HTML file
             json_path: Path to JSON file with page references
             output_path: Path for output HTML (default: input_with_pages.html)
+            inject_css: Whether to inject CSS styling for visible page markers
         """
         self.html_path = Path(html_path)
         self.json_path = Path(json_path)
@@ -35,6 +37,7 @@ class PageMarkerInserter:
             if output_path
             else self.html_path.parent / f"{self.html_path.stem}_with_pages.html"
         )
+        self.inject_css = inject_css
 
         self.soup: Optional[BeautifulSoup] = None
         self.page_references: List[Dict[str, Any]] = []
@@ -246,6 +249,30 @@ class PageMarkerInserter:
 
             self.insert_page_marker(page, snippet)
 
+    def _inject_page_number_css(self) -> None:
+        """Inject CSS styling for page-number markers into the HTML head."""
+        if self.soup is None:
+            return
+
+        css = """
+.page-number {
+    display: inline-block;
+    background-color: #e0e0e0;
+    color: #333;
+    padding: 2px 6px;
+    margin: 0 4px;
+    border-radius: 3px;
+    font-size: 0.85em;
+    font-weight: bold;
+    vertical-align: middle;
+}
+"""
+        head = self.soup.find("head")
+        if head:
+            style_tag = self.soup.new_tag("style")
+            style_tag.string = css
+            head.append(style_tag)
+
     def save(self) -> None:
         """Save the modified HTML to output file.
 
@@ -254,6 +281,9 @@ class PageMarkerInserter:
         """
         if self.soup is None:
             raise ValueError("HTML not loaded. Call load_html() first.")
+
+        if self.inject_css:
+            self._inject_page_number_css()
 
         try:
             with open(self.output_path, "w", encoding="utf-8") as f:

@@ -34,11 +34,15 @@ def cli() -> None:
 @click.option(
     "--verbose", "-v", is_flag=True, help="Enable verbose output (currently unused)"
 )
+@click.option(
+    "--inject-css", is_flag=True, help="Inject CSS styling to make page markers visible"
+)
 def mark(
     input_html: Path,
     page_references: Path,
     output_html: Optional[Path],
     verbose: bool,
+    inject_css: bool,
 ) -> None:
     """Insert page markers into HTML file.
 
@@ -49,10 +53,10 @@ def mark(
     \b
     Examples:
         rx-pagemarker mark book.html pages.json output.html
-        rx-pagemarker mark ../books/book.html pages.json
+        rx-pagemarker mark book.html pages.json --inject-css
     """
     try:
-        inserter = PageMarkerInserter(input_html, page_references, output_html)
+        inserter = PageMarkerInserter(input_html, page_references, output_html, inject_css)
         inserter.run()
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
