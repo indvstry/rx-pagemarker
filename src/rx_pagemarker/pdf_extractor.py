@@ -80,6 +80,8 @@ class PDFExtractor:
         match_html_path: Optional[Union[str, Path]] = None,
         exclude_patterns: Optional[List[str]] = None,
         use_default_excludes: bool = True,
+        skip_footnotes: bool = False,
+        min_font_size: float = 8.5,
     ) -> None:
         """Initialize PDF extractor.
 
@@ -97,6 +99,8 @@ class PDFExtractor:
             exclude_patterns: Regex patterns to exclude from text (e.g., InDesign sluglines)
             use_default_excludes: Whether to use default exclude patterns for common
                 production metadata (InDesign sluglines, timestamps)
+            skip_footnotes: Whether to skip footnote text (smaller font at bottom of page)
+            min_font_size: Minimum font size to include (smaller text treated as footnotes)
 
         Raises:
             InvalidParameterError: If snippet_words or min_words are invalid
@@ -121,6 +125,8 @@ class PDFExtractor:
         self.segment_words = segment_words
         self.language = language
         self.match_html_path = Path(match_html_path) if match_html_path else None
+        self.skip_footnotes = skip_footnotes
+        self.min_font_size = min_font_size
 
         # Build list of exclude patterns
         self.exclude_patterns: List[re.Pattern[str]] = []
@@ -227,6 +233,41 @@ class PDFExtractor:
         cleaned = re.sub(r"\s*/\s+", "/", cleaned)  # Also handle "word/ word"
         return cleaned.strip()
 
+    def _extract_body_text_pymupdf(self, page: "fitz.Page") -> str:
+        """Extract only body text from page, skipping footnotes based on font size.
+
+        Footnotes typically use smaller fonts than body text. This method filters
+        out text spans below the minimum font size threshold.
+
+        Args:
+            page: PyMuPDF page object
+
+        Returns:
+            Body text with footnotes excluded
+        """
+        # Get detailed text with font information
+        blocks = page.get_text("dict")["blocks"]
+
+        body_spans = []
+        for block in blocks:
+            if "lines" not in block:
+                continue
+            for line in block["lines"]:
+                for span in line["spans"]:
+                    # Only include text at or above minimum font size
+                    if span["size"] >= self.min_font_size:
+                        body_spans.append({
+                            "y": span["bbox"][3],  # bottom y coordinate
+                            "text": span["text"]
+                        })
+
+        # Sort by vertical position (reading order)
+        body_spans.sort(key=lambda s: s["y"])
+
+        # Join text
+        text = " ".join(s["text"] for s in body_spans)
+        return text
+
     def extract_with_pymupdf(self) -> List[Dict[str, Any]]:
         """Extract snippets using PyMuPDF (fast, good layout analysis).
 
@@ -264,7 +305,10 @@ class PDFExtractor:
     ) -> Dict[str, Any]:
         """Extract snippet from a single page using PyMuPDF."""
         try:
-            if self.strategy == "bottom_visual":
+            if self.skip_footnotes:
+                # Extract text while filtering by font size to skip footnotes
+                text = self._extract_body_text_pymupdf(page)
+            elif self.strategy == "bottom_visual":
                 # Get text blocks with positions
                 blocks = page.get_text("blocks")
 

@@ -178,6 +178,18 @@ def generate(num_pages: int, output_file: Path, start_page: int, roman: bool) ->
     default=False,
     help="Disable default exclusion patterns (InDesign sluglines, timestamps)",
 )
+@click.option(
+    "--skip-footnotes",
+    is_flag=True,
+    default=False,
+    help="Skip footnote text (smaller font at bottom of page), extract body text only",
+)
+@click.option(
+    "--min-font-size",
+    type=float,
+    default=8.5,
+    help="Minimum font size to include when --skip-footnotes is used (default: 8.5pt)",
+)
 def extract(
     pdf_file: Path,
     output_json: Path,
@@ -193,6 +205,8 @@ def extract(
     match_html: Optional[Path],
     exclude_pattern: tuple,
     no_default_excludes: bool,
+    skip_footnotes: bool,
+    min_font_size: float,
 ) -> None:
     """Extract text snippets from PDF file for page marker generation.
 
@@ -247,6 +261,8 @@ def extract(
             match_html_path=match_html,
             exclude_patterns=list(exclude_pattern) if exclude_pattern else None,
             use_default_excludes=not no_default_excludes,
+            skip_footnotes=skip_footnotes,
+            min_font_size=min_font_size,
         )
 
         # Extract snippets
