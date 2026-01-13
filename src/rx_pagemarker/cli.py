@@ -135,6 +135,12 @@ def generate(num_pages: int, output_file: Path, start_page: int, roman: bool) ->
     help="Last page number to extract (default: all pages)",
 )
 @click.option(
+    "--page-offset",
+    type=int,
+    default=0,
+    help="Offset to add to page numbers (e.g., --page-offset 500 makes page 7 output as 507)",
+)
+@click.option(
     "--segment-words",
     is_flag=True,
     default=False,
@@ -180,6 +186,7 @@ def extract(
     backend: str,
     start_page: int,
     end_page: Optional[int],
+    page_offset: int,
     segment_words: bool,
     language: str,
     review: bool,
@@ -258,6 +265,14 @@ def extract(
             click.echo(
                 f"Filtered to pages {start_page}-{end_page or 'end'}: {len(snippets)} pages"
             )
+
+        # Apply page offset if specified (for magazines with continuing page numbers)
+        if page_offset != 0:
+            for snippet in snippets:
+                snippet["page"] = snippet["page"] + page_offset
+            first_page = snippets[0]["page"] if snippets else start_page + page_offset
+            last_page = snippets[-1]["page"] if snippets else end_page + page_offset if end_page else "end"
+            click.echo(f"Applied page offset {page_offset}: pages now {first_page}-{last_page}")
 
         # Review mode: show confidence scores
         if review and segment_words:
