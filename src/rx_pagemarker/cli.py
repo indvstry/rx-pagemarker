@@ -163,7 +163,13 @@ def generate(num_pages: int, output_file: Path, start_page: int, roman: bool) ->
     "--match-html",
     type=click.Path(exists=True, path_type=Path),
     default=None,
-    help="HTML file to match against for correcting word boundaries",
+    help="HTML file for fuzzy matching (slow but accurate for complex layouts)",
+)
+@click.option(
+    "--complete-words",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="HTML file for word completion only (fast - completes partial words at end of snippets)",
 )
 @click.option(
     "--exclude-pattern",
@@ -203,6 +209,7 @@ def extract(
     language: str,
     review: bool,
     match_html: Optional[Path],
+    complete_words: Optional[Path],
     exclude_pattern: tuple,
     no_default_excludes: bool,
     skip_footnotes: bool,
@@ -247,7 +254,10 @@ def extract(
       # Word segmentation with different language
       rx-pagemarker extract book.pdf snippets.json --segment-words -l el
 
-      # Use HTML matching for best results (recommended for PDFs with spacing issues)
+      # Complete partial words at end of snippets (fast, recommended)
+      rx-pagemarker extract book.pdf snippets.json --complete-words book.html
+
+      # Use HTML fuzzy matching for best results (slow, for complex layouts)
       rx-pagemarker extract book.pdf snippets.json --match-html book.html --review
     """
     try:
@@ -263,6 +273,7 @@ def extract(
             use_default_excludes=not no_default_excludes,
             skip_footnotes=skip_footnotes,
             min_font_size=min_font_size,
+            complete_words_html_path=complete_words,
         )
 
         # Extract snippets

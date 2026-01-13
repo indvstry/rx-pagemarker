@@ -42,6 +42,10 @@ test_*.html
 # Test data and temporary extractions
 chapter*.json
 /tmp/*.json
+xrdd_*.json
+
+# Sample files (large PDFs/HTMLs for testing)
+sample-files/
 
 # Your actual book files (adjust as needed)
 # book.html

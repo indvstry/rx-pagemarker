@@ -82,6 +82,7 @@ class PDFExtractor:
         use_default_excludes: bool = True,
         skip_footnotes: bool = False,
         min_font_size: float = 8.5,
+        complete_words_html_path: Optional[Union[str, Path]] = None,
     ) -> None:
         """Initialize PDF extractor.
 
@@ -96,11 +97,14 @@ class PDFExtractor:
             segment_words: Enable word boundary reconstruction for PDFs with missing spaces
             language: Language code for word segmentation (e.g., 'el' for Greek)
             match_html_path: Optional path to HTML file for matching-based correction
+                (includes fuzzy matching - slow but accurate)
             exclude_patterns: Regex patterns to exclude from text (e.g., InDesign sluglines)
             use_default_excludes: Whether to use default exclude patterns for common
                 production metadata (InDesign sluglines, timestamps)
             skip_footnotes: Whether to skip footnote text (smaller font at bottom of page)
             min_font_size: Minimum font size to include (smaller text treated as footnotes)
+            complete_words_html_path: Optional path to HTML file for word completion only
+                (fast - completes partial words at end of snippets using HTML reference)
 
         Raises:
             InvalidParameterError: If snippet_words or min_words are invalid
@@ -137,25 +141,33 @@ class PDFExtractor:
             for pattern in exclude_patterns:
                 self.exclude_patterns.append(re.compile(pattern, re.IGNORECASE))
 
+        # Determine HTML path for word completion (prefer complete_words_html_path if both set)
+        self.complete_words_html_path = (
+            Path(complete_words_html_path) if complete_words_html_path else None
+        )
+        word_completion_path = self.complete_words_html_path or self.match_html_path
+
         # Load HTML content for word completion if path provided
         self.html_text: Optional[str] = None
-        if self.match_html_path:
+        if word_completion_path:
             try:
-                with open(self.match_html_path, "r", encoding="utf-8") as f:
+                with open(word_completion_path, "r", encoding="utf-8") as f:
                     html_content = f.read()
                 # Strip HTML tags for text matching
                 self.html_text = re.sub(r"<[^>]+>", "", html_content)
                 self.html_text = re.sub(r"\s+", " ", self.html_text)
+                print(f"Loaded HTML for word completion: {word_completion_path.name}")
             except Exception as e:
                 print(f"⚠ Warning: Could not load HTML for word completion: {e}")
 
-        # Initialize HTML matcher if provided (for fuzzy matching)
+        # Initialize HTML matcher if match_html_path provided (for fuzzy matching - slow)
         self.html_matcher: Optional["HTMLMatcher"] = None
         if self.match_html_path:
             try:
                 from .html_matcher import HTMLMatcher
 
                 self.html_matcher = HTMLMatcher(self.match_html_path)
+                print("Enabled fuzzy HTML matching (this may be slow for large files)")
             except ImportError as e:
                 raise MissingDependencyError(
                     f"HTML matching requires rapidfuzz. Install with: pip install rapidfuzz"
