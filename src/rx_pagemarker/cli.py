@@ -166,10 +166,10 @@ def generate(num_pages: int, output_file: Path, start_page: int, roman: bool) ->
     help="HTML file for fuzzy matching (slow but accurate for complex layouts)",
 )
 @click.option(
-    "--complete-words",
+    "--html",
     type=click.Path(exists=True, path_type=Path),
     default=None,
-    help="HTML file for word completion only (fast - completes partial words at end of snippets)",
+    help="HTML file for word completion and context correction (recommended)",
 )
 @click.option(
     "--exclude-pattern",
@@ -185,16 +185,16 @@ def generate(num_pages: int, output_file: Path, start_page: int, roman: bool) ->
     help="Disable default exclusion patterns (InDesign sluglines, timestamps)",
 )
 @click.option(
-    "--skip-footnotes",
+    "--include-footnotes",
     is_flag=True,
     default=False,
-    help="Skip footnote text (smaller font at bottom of page), extract body text only",
+    help="Include footnote text (smaller font); by default footnotes are skipped",
 )
 @click.option(
     "--min-font-size",
     type=float,
     default=8.5,
-    help="Minimum font size to include when --skip-footnotes is used (default: 8.5pt)",
+    help="Minimum font size for body text (smaller text treated as footnotes, default: 8.5pt)",
 )
 def extract(
     pdf_file: Path,
@@ -209,10 +209,10 @@ def extract(
     language: str,
     review: bool,
     match_html: Optional[Path],
-    complete_words: Optional[Path],
+    html: Optional[Path],
     exclude_pattern: tuple,
     no_default_excludes: bool,
-    skip_footnotes: bool,
+    include_footnotes: bool,
     min_font_size: float,
 ) -> None:
     """Extract text snippets from PDF file for page marker generation.
@@ -236,29 +236,23 @@ def extract(
 
     \b
     Examples:
-      # Basic usage - extract all pages
+      # Basic usage - extract all pages (footnotes skipped by default)
       rx-pagemarker extract book.pdf snippets.json
+
+      # Recommended: provide HTML for word completion and context correction
+      rx-pagemarker extract book.pdf snippets.json --html book.html
+
+      # Magazine with page offset (PDF page 7 = print page 507)
+      rx-pagemarker extract magazine.pdf snippets.json --html mag.html --start-page 7 --page-offset 500
 
       # Extract with 8 words per snippet using pdfplumber
       rx-pagemarker extract book.pdf snippets.json -w 8 -b pdfplumber
 
-      # Extract only pages 1-50
-      rx-pagemarker extract book.pdf snippets.json --start-page 1 --end-page 50
+      # Include footnotes (normally skipped)
+      rx-pagemarker extract book.pdf snippets.json --include-footnotes
 
-      # Use visual positioning for complex layouts
-      rx-pagemarker extract book.pdf snippets.json -s bottom_visual
-
-      # Enable word segmentation for PDFs with missing spaces (e.g., Greek text)
-      rx-pagemarker extract book.pdf snippets.json --segment-words --review
-
-      # Word segmentation with different language
-      rx-pagemarker extract book.pdf snippets.json --segment-words -l el
-
-      # Complete partial words at end of snippets (fast, recommended)
-      rx-pagemarker extract book.pdf snippets.json --complete-words book.html
-
-      # Use HTML fuzzy matching for best results (slow, for complex layouts)
-      rx-pagemarker extract book.pdf snippets.json --match-html book.html --review
+      # Use slow fuzzy matching for complex layouts
+      rx-pagemarker extract book.pdf snippets.json --match-html book.html
     """
     try:
         extractor = PDFExtractor(
@@ -271,9 +265,9 @@ def extract(
             match_html_path=match_html,
             exclude_patterns=list(exclude_pattern) if exclude_pattern else None,
             use_default_excludes=not no_default_excludes,
-            skip_footnotes=skip_footnotes,
+            skip_footnotes=not include_footnotes,  # Skip by default, include if flag set
             min_font_size=min_font_size,
-            complete_words_html_path=complete_words,
+            complete_words_html_path=html,
         )
 
         # Extract snippets
