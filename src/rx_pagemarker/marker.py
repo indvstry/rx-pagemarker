@@ -46,6 +46,10 @@ class PageMarkerInserter:
             "not_found": 0,
             "multiple_matches": 0,
         }
+        # Track position for sequential insertion (container index + position within)
+        self._last_insertion_container_idx: int = -1
+        self._last_insertion_position: int = 0  # Position within the container
+        self._containers: Optional[List[Tag]] = None
 
     def load_html(self) -> None:
         """Load and parse the HTML file.
@@ -90,6 +94,38 @@ class PageMarkerInserter:
             print(f"✗ Error parsing JSON: {e}")
             sys.exit(1)
 
+    def _get_containers(self) -> List[Tag]:
+        """Get all content containers in document order (cached).
+
+        Containers are filtered to exclude nested containers and
+        non-content elements like script, style, head.
+
+        Returns:
+            List of Tag objects representing leaf containers
+        """
+        if self._containers is not None:
+            return self._containers
+
+        if self.soup is None:
+            raise ValueError("HTML not loaded. Call load_html() first.")
+
+        container_types = [
+            "p", "div", "td", "th", "li", "dd", "dt",
+            "h1", "h2", "h3", "h4", "h5", "h6",
+            "blockquote", "aside", "article", "section",
+        ]
+
+        all_containers = self.soup.find_all(container_types)
+
+        # Filter to leaf containers only
+        self._containers = [
+            c for c in all_containers
+            if not c.find_parent(["script", "style", "head"])
+            and not c.find(container_types)
+        ]
+
+        return self._containers
+
     def create_page_marker(self, page_number: Union[str, int]) -> Tag:
         """Create a page marker span element.
 
@@ -110,73 +146,71 @@ class PageMarkerInserter:
         return marker
 
     def find_snippet_location(
-        self, snippet: str
-    ) -> Tuple[Optional[NavigableString], Optional[int]]:
-        """Find where a snippet ends, even if it spans multiple formatting tags.
+        self, snippet: str, search_after_idx: int = -1, search_after_pos: int = 0
+    ) -> Tuple[Optional[NavigableString], Optional[int], int, int]:
+        """Find where a snippet ends, using sequential position tracking.
 
-        This enhanced version searches through parent containers and can find
-        snippets that span across <i>, <b>, <span>, and other inline tags.
+        This method searches through containers in document order, but only
+        considers positions AFTER the last insertion point. This allows
+        multiple page markers within the same container (paragraph).
+
+        Supports page break marker "|" in snippets:
+        - "word1 word2|word3 word4" searches for "word1 word2 word3 word4"
+        - But returns position after "word2" (the page break point)
 
         Args:
-            snippet: Text snippet to search for
+            snippet: Text snippet to search for (may contain | for page break)
+            search_after_idx: Container index of last insertion
+            search_after_pos: Position within that container of last insertion
 
         Returns:
-            Tuple of (text_node, position_in_node) or (None, None) if not found
+            Tuple of (text_node, position_in_node, container_index, marker_position)
+            or (None, None, -1, 0) if not found
         """
+        # Handle page break marker - split into before/after parts
+        if "|" in snippet:
+            parts = snippet.split("|", 1)
+            snippet_before = parts[0].strip()
+            snippet_after = parts[1].strip() if len(parts) > 1 else ""
+            # Search for combined context (without the |)
+            search_snippet = f"{snippet_before} {snippet_after}".strip()
+            # We'll find position after snippet_before
+            marker_offset = len(snippet_before)
+        else:
+            search_snippet = snippet
+            snippet_before = snippet
+            marker_offset = len(snippet)
+
         if self.soup is None:
             raise ValueError("HTML not loaded. Call load_html() first.")
 
-        matches: List[Tuple[NavigableString, int]] = []
+        containers = self._get_containers()
 
-        # Search through common container elements
-        containers = self.soup.find_all(
-            [
-                "p",
-                "div",
-                "td",
-                "th",
-                "li",
-                "dd",
-                "dt",
-                "h1",
-                "h2",
-                "h3",
-                "h4",
-                "h5",
-                "h6",
-                "blockquote",
-                "aside",
-                "article",
-                "section",
-            ]
-        )
-
-        # Container types we search through
-        container_types = [
-            "p", "div", "td", "th", "li", "dd", "dt",
-            "h1", "h2", "h3", "h4", "h5", "h6",
-            "blockquote", "aside", "article", "section",
-        ]
-
-        for container in containers:
-            # Skip containers within script, style, etc.
-            if container.find_parent(["script", "style", "head"]):
-                continue
-
-            # Skip parent containers - only use most specific (leaf) containers
-            # If this container has child containers of the same types, skip it
-            if container.find(container_types):
+        for idx, container in enumerate(containers):
+            # Skip containers before our current position
+            if idx < search_after_idx:
                 continue
 
             # Get combined text from this container (strips all tags)
             combined_text = container.get_text()
 
             # Check if snippet exists in the combined text
-            if snippet in combined_text:
-                snippet_start = combined_text.find(snippet)
-                snippet_end = snippet_start + len(snippet)
+            if search_snippet in combined_text:
+                snippet_start = combined_text.find(search_snippet)
+                # marker_position is where the page break marker should go
+                # (after snippet_before, not after the full search_snippet)
+                marker_position = snippet_start + marker_offset
 
-                # Walk through all text nodes to find where snippet ends
+                # If same container as last insertion, must be after that position
+                if idx == search_after_idx and marker_position <= search_after_pos:
+                    # Snippet is before our last insertion point, try to find later occurrence
+                    later_start = combined_text.find(search_snippet, search_after_pos)
+                    if later_start == -1:
+                        continue  # No later occurrence in this container
+                    snippet_start = later_start
+                    marker_position = snippet_start + marker_offset
+
+                # Walk through all text nodes to find where marker should go
                 current_pos = 0
 
                 for node in container.descendants:
@@ -188,29 +222,23 @@ class PageMarkerInserter:
                         node_text = str(node)
                         node_length = len(node_text)
 
-                        # Check if snippet ends within this text node
-                        if current_pos < snippet_end <= current_pos + node_length:
+                        # Check if marker position is within this text node
+                        if current_pos < marker_position <= current_pos + node_length:
                             # Calculate position within this specific node
-                            position_in_node = snippet_end - current_pos
-                            matches.append((node, position_in_node))
-                            break
+                            position_in_node = marker_position - current_pos
+                            return (node, position_in_node, idx, marker_position)
 
                         current_pos += node_length
 
-        if len(matches) == 0:
-            return None, None
-        elif len(matches) > 1:
-            self.stats["multiple_matches"] += 1
-            print(
-                f"  ⚠ Warning: Snippet found in {len(matches)} locations, using last occurrence"
-            )
-
-        # Use last occurrence - summaries/abstracts appear first in HTML,
-        # so the actual page break location is typically the last match
-        return matches[-1]
+        return (None, None, -1, 0)
 
     def insert_page_marker(self, page_number: Union[str, int], snippet: str) -> bool:
         """Insert a page marker after the specified snippet.
+
+        Uses sequential position tracking: each marker is only placed AFTER
+        the previous marker's position in the document. This ensures correct
+        ordering even when snippet text appears multiple times, including
+        multiple page breaks within the same paragraph.
 
         Args:
             page_number: Page number to insert
@@ -219,10 +247,12 @@ class PageMarkerInserter:
         Returns:
             True if successful, False otherwise
         """
-        text_node, position_in_node = self.find_snippet_location(snippet)
+        text_node, position_in_node, container_idx, container_pos = self.find_snippet_location(
+            snippet, self._last_insertion_container_idx, self._last_insertion_position
+        )
 
         if text_node is None or position_in_node is None:
-            print(f"  ✗ Page {page_number}: Snippet not found")
+            print(f"  ✗ Page {page_number}: Snippet not found after container {self._last_insertion_container_idx}:{self._last_insertion_position}")
             self.stats["not_found"] += 1
             return False
 
@@ -245,15 +275,39 @@ class PageMarkerInserter:
         if after_node:
             marker.insert_after(after_node)
 
-        print(f"  ✓ Page {page_number}: Marker inserted")
+        # Update position tracking for next insertion
+        self._last_insertion_container_idx = container_idx
+        self._last_insertion_position = container_pos
+
+        print(f"  ✓ Page {page_number}: Marker inserted (container {container_idx}:{container_pos})")
         self.stats["found"] += 1
         return True
 
     def process(self) -> None:
-        """Process all page references and insert markers."""
+        """Process all page references and insert markers.
+
+        Pages are processed in ascending order to ensure sequential placement.
+        Sequential position tracking ensures each marker is placed AFTER the
+        previous one in document order.
+        """
         print("\nInserting page markers...")
 
-        for entry in self.page_references:
+        # Reset position tracking for fresh processing
+        self._last_insertion_container_idx = -1
+        self._last_insertion_position = 0
+        self._containers = None  # Re-cache containers
+
+        # Sort by page number to process in order
+        sorted_refs = sorted(
+            self.page_references,
+            key=lambda x: (
+                # Handle both numeric and roman numeral pages
+                int(x.get("page", 0)) if str(x.get("page", "")).isdigit() else 0,
+                str(x.get("page", ""))
+            )
+        )
+
+        for entry in sorted_refs:
             page = entry.get("page")
             snippet = entry.get("snippet")
 
@@ -288,6 +342,49 @@ class PageMarkerInserter:
             style_tag.string = css
             head.append(style_tag)
 
+    def _remove_out_of_order_markers(self) -> int:
+        """Remove page markers that are out of sequential order.
+
+        Page markers should appear in ascending order throughout the document.
+        Any marker that breaks this sequence is likely placed incorrectly.
+
+        Returns:
+            Number of markers removed
+        """
+        if self.soup is None:
+            return 0
+
+        # Find all page markers in document order
+        markers = self.soup.find_all("span", class_="page-number")
+
+        # Extract page numbers and track which to remove
+        to_remove = []
+        max_page_seen = -1
+
+        for marker in markers:
+            try:
+                page_num = int(marker.get_text())
+                if page_num < max_page_seen:
+                    # This marker is out of order - mark for removal
+                    to_remove.append(marker)
+                else:
+                    max_page_seen = page_num
+            except (ValueError, TypeError):
+                # Non-numeric page (e.g., roman numerals) - skip
+                continue
+
+        # Remove out-of-order markers
+        for marker in to_remove:
+            page_num = marker.get_text()
+            # Replace marker with empty string (remove it)
+            marker.decompose()
+
+        if to_remove:
+            print(f"\n⚠ Removed {len(to_remove)} out-of-order markers")
+            self.stats["out_of_order"] = len(to_remove)
+
+        return len(to_remove)
+
     def save(self) -> None:
         """Save the modified HTML to output file.
 
@@ -296,6 +393,9 @@ class PageMarkerInserter:
         """
         if self.soup is None:
             raise ValueError("HTML not loaded. Call load_html() first.")
+
+        # Remove any out-of-order markers before saving
+        self._remove_out_of_order_markers()
 
         if self.inject_css:
             self._inject_page_number_css()
@@ -312,6 +412,9 @@ class PageMarkerInserter:
     def print_stats(self) -> None:
         """Print processing statistics."""
         total = self.stats["found"] + self.stats["not_found"]
+        out_of_order = self.stats.get("out_of_order", 0)
+        kept = self.stats["found"] - out_of_order
+
         print("\n" + "=" * 50)
         print("SUMMARY")
         print("=" * 50)
@@ -319,6 +422,9 @@ class PageMarkerInserter:
         print(f"Successfully found:  {self.stats['found']}")
         print(f"Not found:           {self.stats['not_found']}")
         print(f"Multiple matches:    {self.stats['multiple_matches']}")
+        if out_of_order > 0:
+            print(f"Out-of-order removed: {out_of_order}")
+            print(f"Final markers kept:  {kept}")
 
         if self.stats["not_found"] > 0:
             print("\n⚠ Some page markers could not be inserted.")

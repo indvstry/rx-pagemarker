@@ -153,10 +153,18 @@ class PDFExtractor:
             try:
                 with open(word_completion_path, "r", encoding="utf-8") as f:
                     html_content = f.read()
+                # Remove footnotes section before stripping tags (InDesign exports)
+                # Footnotes appear in <ol class="_idFootAndEndNoteOLAttrs"> containers
+                html_content = re.sub(
+                    r'<ol[^>]*class="[^"]*_idFootAndEndNoteOLAttrs[^"]*"[^>]*>.*?</ol>',
+                    '',
+                    html_content,
+                    flags=re.DOTALL | re.IGNORECASE
+                )
                 # Strip HTML tags for text matching
                 self.html_text = re.sub(r"<[^>]+>", "", html_content)
                 self.html_text = re.sub(r"\s+", " ", self.html_text)
-                print(f"Loaded HTML for word completion: {word_completion_path.name}")
+                print(f"Loaded HTML for word completion: {word_completion_path.name} (footnotes excluded)")
             except Exception as e:
                 print(f"⚠ Warning: Could not load HTML for word completion: {e}")
 
@@ -238,6 +246,38 @@ class PDFExtractor:
         # Matches: "word- continuation" or "word-\ncontinuation"
         dehyphenated = re.sub(r"(\w)-\s+(\w)", r"\1\2", text)
         return dehyphenated
+
+    def _trim_to_boundary(self, snippet: str) -> str:
+        """Trim snippet to end at a natural boundary if possible.
+
+        Looks for sentence-ending punctuation (. ; :) and trims to that point
+        to avoid placing markers in the middle of phrases.
+
+        Args:
+            snippet: Raw snippet text
+
+        Returns:
+            Snippet trimmed to natural boundary, or original if no boundary found
+        """
+        # Find the last natural boundary (period, semicolon, colon followed by space or end)
+        # Look for these patterns in reverse order
+        boundary_chars = [". ", "; ", ": ", "· "]  # Include Greek semicolon
+
+        best_pos = -1
+        for boundary in boundary_chars:
+            pos = snippet.rfind(boundary)
+            if pos > best_pos and pos > len(snippet) // 3:  # Must keep at least 1/3
+                best_pos = pos
+
+        # Also check for end-of-snippet punctuation
+        if snippet.rstrip().endswith((".", ";", ":", "·")):
+            return snippet.rstrip()
+
+        if best_pos > 0:
+            # Include the punctuation but not the space after
+            return snippet[: best_pos + 1].rstrip()
+
+        return snippet
 
     def _clean_snippet(self, snippet: str, html_text: Optional[str] = None) -> str:
         """Clean up snippet for better matching.
@@ -352,14 +392,14 @@ class PDFExtractor:
         if len(words) < 3:
             return snippet, False
 
-        # Try to find anchor sequences of 2-3 consecutive words
-        for anchor_len in [3, 2]:
+        # Try to find anchor sequences of 3-4 consecutive words
+        for anchor_len in [4, 3]:
             for i in range(len(words) - anchor_len + 1):
                 anchor = " ".join(words[i : i + anchor_len])
 
-                # Search for this anchor in HTML (use rfind to get LAST occurrence,
-                # since summaries/abstracts appear first and we want the main body)
-                pos = html_text.rfind(anchor)
+                # Search for this anchor in HTML (use find to get FIRST occurrence,
+                # since pages are processed in order)
+                pos = html_text.find(anchor)
                 if pos == -1:
                     continue
 
@@ -448,20 +488,75 @@ class PDFExtractor:
 
                 print(f"Using PyMuPDF backend for {len(doc)} pages...")
 
+                # First pass: extract all page texts
+                page_texts = []
                 for page_num in range(len(doc)):
                     page = doc[page_num]
+                    if self.skip_footnotes:
+                        text = self._extract_body_text_pymupdf(page)
+                    else:
+                        text = page.get_text()
+                    text = self._filter_production_metadata(text)
+                    text = self._dehyphenate(text)
+                    page_texts.append(text)
 
-                    # Show progress for large files
+                # Second pass: extract snippets with context from next page
+                for page_num in range(len(doc)):
                     if (page_num + 1) % 50 == 0:
                         print(f"  Processing page {page_num + 1}/{len(doc)}...")
 
-                    snippet = self._extract_page_snippet_pymupdf(page, page_num + 1)
+                    current_text = page_texts[page_num]
+                    next_text = page_texts[page_num + 1] if page_num + 1 < len(doc) else ""
+
+                    snippet = self._extract_snippet_with_context(
+                        current_text, next_text, page_num + 1
+                    )
                     snippets.append(snippet)
 
         except Exception as e:
             raise PDFExtractionError(f"Error reading PDF with PyMuPDF: {e}") from e
 
         return snippets
+
+    def _extract_snippet_with_context(
+        self, current_text: str, next_text: str, page_num: int
+    ) -> Dict[str, Any]:
+        """Extract snippet from current page only (simpler, more reliable).
+
+        Args:
+            current_text: Text from current page
+            next_text: Text from next page (unused, kept for API compatibility)
+            page_num: Page number
+
+        Returns:
+            Dictionary with page number and snippet
+        """
+        current_words = current_text.split()
+
+        if len(current_words) < self.min_words:
+            self.stats["insufficient_text"] += 1
+            return {
+                "page": page_num,
+                "snippet": "PASTE_TEXT_FROM_END_OF_PAGE_HERE",
+                "note": f"Insufficient text (found {len(current_words)} words)",
+            }
+
+        # Get words from end of current page
+        snippet = " ".join(current_words[-self.snippet_words:])
+
+        # Trim to natural boundary (period, semicolon) if possible
+        snippet = self._trim_to_boundary(snippet)
+
+        # Try to complete partial words using HTML if available
+        if self.html_text:
+            snippet = self._clean_snippet(snippet, self.html_text)
+
+        self.stats["successful"] += 1
+
+        return {
+            "page": page_num,
+            "snippet": snippet,
+        }
 
     def _extract_page_snippet_pymupdf(
         self, page: "fitz.Page", page_num: int
@@ -503,6 +598,9 @@ class PDFExtractor:
                 }
 
             snippet = " ".join(words[-self.snippet_words :])
+
+            # Trim to natural boundary (period, semicolon) if possible
+            snippet = self._trim_to_boundary(snippet)
 
             # Clean up trailing incomplete words and complete partial words from HTML
             snippet = self._clean_snippet(snippet, self.html_text)
@@ -618,6 +716,9 @@ class PDFExtractor:
                 }
 
             snippet = " ".join(words[-self.snippet_words :])
+
+            # Trim to natural boundary (period, semicolon) if possible
+            snippet = self._trim_to_boundary(snippet)
 
             # Clean up trailing incomplete words and complete partial words from HTML
             snippet = self._clean_snippet(snippet, self.html_text)

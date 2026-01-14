@@ -478,8 +478,8 @@ class TestContextCorrection:
     def test_finds_anchor_with_2_words(self):
         """Test that 2-word anchors are found when 3-word anchors fail."""
         extractor = PDFExtractor("test.pdf")
-        html_text = "η απόφαση του δικαστηρίου είναι τελεσίδικη"
-        snippet = "wrongword απόφαση του wrongword2"
+        html_text = "η απόφαση του δικαστηρίου είναι τελεσίδικη και οριστική"
+        snippet = "wrongword απόφαση του δικαστηρίου wrongword2"
 
         result, was_corrected = extractor._correct_snippet_from_context(
             snippet, html_text, target_words=6

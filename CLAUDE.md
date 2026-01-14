@@ -66,7 +66,23 @@ These markers enable EPUB page-list navigation, citation compatibility with prin
 - **`--fuzzy-match` flag**: Replaces `--match-html` for slow fuzzy matching on corrupted PDFs
 - **Better error messages**: Clear guidance when HTML file is missing
 
-## Current Status (as of 2025-01-13)
+### Phase 8: Sequential Position Tracking (2025-01-14)
+- **Problem**: Markers placed out-of-order when snippet text appears multiple times in document
+  - Example: Page 900's snippet "του δικαστηρίου" also exists on page 200
+  - Old approach: First occurrence wins → wrong placement
+- **Solution**: Track insertion position sequentially
+  - Process pages in ascending order
+  - Track both container index AND position within container
+  - Each new marker must come AFTER previous marker's position
+  - Handles multiple page breaks within same paragraph
+- **Frontmatter/backmatter filtering**: Use `--start-page` and `--end-page` to exclude non-body content
+  - Critical for magazines where PDF frontmatter (TOC, etc.) isn't in HTML export
+- **Results on test magazine (XRDD 4/2025)**:
+  - Before: 47 markers (18% - 204 out-of-order removed)
+  - After filtering + position tracking: **228/232 markers (98.3%)**
+- **Remaining issues**: 4 pages with PDF extraction problems (791, 825, 862, 897)
+
+## Current Status (as of 2025-01-14)
 
 ### Production Ready
 - ✅ Full CLI tool with professional packaging
@@ -76,7 +92,7 @@ These markers enable EPUB page-list navigation, citation compatibility with prin
 - ✅ Comprehensive validation and reporting
 - ✅ Strong test coverage (58 tests)
 - ✅ **Production metadata filtering** - Auto-removes InDesign sluglines and timestamps
-- ✅ **Magazine PDF support** - Tested with 272-page legal magazine (98.9% match rate)
+- ✅ **Magazine PDF support** - Tested with 272-page legal magazine (98.3% marker insertion rate)
 - ✅ **Dehyphenation** - Rejoins words split across lines
 - ✅ **Improved validation** - Strips HTML tags before comparing snippets
 - ✅ **Page offset support** - For magazines with continuing page numbers (`--page-offset`)
@@ -84,11 +100,12 @@ These markers enable EPUB page-list navigation, citation compatibility with prin
 - ✅ **Partial word completion** - Completes cut-off words using HTML (`--complete-words`)
 - ✅ **Context-based correction** - Fixes merged words using anchor sequences from HTML
 - ✅ **CSS injection** - `--inject-css` for visible page markers in browser
+- ✅ **Sequential position tracking** - Handles duplicate snippets and multiple page breaks per paragraph
 
 ### Known Issues
 - **HTML matching performance**: Slow for 500+ page PDFs (several minutes)
 - **Morphological coverage**: Some rare Greek word forms not in top-10k frequency list
-- **Text normalization**: ~20% of snippets may not match due to subtle spacing/character differences
+- **PDF extraction edge cases**: ~1.7% of pages may have extraction issues requiring manual snippets
 
 ## Architecture
 
@@ -223,3 +240,33 @@ flake8 src/ tests/
 ## Related Projects
 - **rx-ind-epub-gen**: EPUB3 generator from InDesign HTML exports
 - Uses same quality standards and conventions
+
+## Session Notes (2025-01-14) - XRDD 4/2025 Magazine
+
+### Test Files
+- **PDF**: `sample-files/XRDD 4:2025 FINAL.pdf` (272 pages total)
+- **HTML**: `sample-files/XRDDD4 2025ENOMENO-fixed-class.html`
+- **Output**: `sample-files/XRDDD4 2025ENOMENO-fixed-class_with_pages.html`
+- **Snippets**: `sample-files/XRDD4_2025_snippets.json` (232 entries for body pages)
+
+### PDF Structure
+- Pages 1-6: Frontmatter (excluded)
+- Pages 7-238: Body content (232 pages) → Magazine pages 775-1006
+- Pages 239-272: Backmatter (excluded)
+- Page offset: 768 (PDF page 7 = magazine page 775)
+
+### Extraction Command Used
+```bash
+rx-pagemarker extract "sample-files/XRDD 4:2025 FINAL.pdf" /tmp/snippets_body.json \
+  "sample-files/XRDDD4 2025ENOMENO-fixed-class.html" \
+  --start-page 7 --end-page 238 --page-offset 768
+```
+
+### Results
+- 228/232 markers inserted (98.3%)
+- 4 pages with extraction issues: **791, 825, 862, 897**
+
+### Next Steps
+1. Investigate the 4 failing pages - likely PDF text extraction issues
+2. May need manual snippet entry for those pages
+3. Consider committing the sequential tracking improvements
