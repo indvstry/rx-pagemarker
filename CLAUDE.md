@@ -237,6 +237,32 @@ mypy src/
 flake8 src/ tests/
 ```
 
+## Production Use Cases
+
+### XRDD Magazine (Χρονικά Δικονομικού Δικαίου)
+Legal magazine successfully processed with 98.3% marker insertion rate.
+
+**Magazine structure:**
+- 272-page PDF with continuing page numbers from previous issues
+- Pages 1-6: Frontmatter (TOC, etc.) - not in HTML export
+- Pages 7-238: Body content (232 pages) → Magazine pages 775-1006
+- Pages 239-272: Backmatter - not in HTML export
+
+**Extraction command:**
+```bash
+rx-pagemarker extract "XRDD_4_2025.pdf" snippets.json "XRDD_body.html" \
+  --start-page 7 --end-page 238 --page-offset 768
+```
+
+**Key flags for magazine workflow:**
+| Flag | Value | Purpose |
+|------|-------|---------|
+| `--start-page` | 7 | Skip frontmatter not in HTML |
+| `--end-page` | 238 | Skip backmatter not in HTML |
+| `--page-offset` | 768 | PDF page 7 = magazine page 775 |
+
+**Results:** 228/232 markers (98.3%), 4 pages needed manual snippets due to PDF extraction issues.
+
 ## Related Projects
 - **rx-ind-epub-gen**: EPUB3 generator from InDesign HTML exports
 - Uses same quality standards and conventions
