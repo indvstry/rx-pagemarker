@@ -392,6 +392,57 @@ offset = first_magazine_page - first_pdf_page + 1
            Marker labeled 776 placed at page break
 ```
 
+### Single-Column vs Two-Column Layouts
+
+The tool handles different PDF layouts with different strategies:
+
+**Single-Column PDFs (default `end_of_page` strategy):**
+```
+┌─────────────────────┐
+│                     │
+│     Body Text       │
+│                     │
+│     [extract here]◄─│  ← Last words of body
+├─────────────────────┤
+│     Footnotes       │  ← Filtered by font size
+└─────────────────────┘
+```
+- **Success rate**: 97.8% (tested on XRDD magazine)
+- **How it works**: Extracts last N words from page, footnotes filtered by font size
+- **Why it works**: Page endings have unique text, footnotes clearly separated
+
+**Two-Column PDFs (use `--two-column` flag):**
+```
+┌───────────┬───────────┐
+│           │           │
+│   Left    │   Right   │
+│  Column   │  Column   │
+│           │           │
+│           │ [extract]◄│  ← End of RIGHT column body
+├───────────┴───────────┤
+│      Footnotes        │  ← Skip this zone entirely
+└───────────────────────┘
+```
+- **Problem with default**: `end_of_page` extracts from footnote zone (wrong area)
+- **Solution**: Column-aware extraction that:
+  1. Detects footnote zone by y-position (bottom ~25% of page)
+  2. Extracts only from body text area
+  3. Takes text from end of rightmost column
+
+**Why not use `beginning_of_page` for two-column?**
+- Headers/section titles repeat across pages
+- Only 72.7% success rate in testing
+- Sequential position tracking rejects too many duplicates
+
+**Choosing the right approach:**
+| PDF Type | Flag | Strategy |
+|----------|------|----------|
+| Single-column | (default) | `end_of_page` with footnote filtering |
+| Two-column magazine | `--min-font-size 9.0` | Standard extraction + visual editor (see note below) |
+| Complex tables | Manual | Use visual editor |
+
+> **⚠️ NOTE:** Do NOT use `--two-column` flag - it has column sorting bugs that create garbled text. Use standard extraction with `--min-font-size` filtering instead, expect ~50-60% automated success, and use the visual editor for the rest.
+
 ## Project Structure
 
 ### Directory Organization
@@ -500,3 +551,88 @@ rx-pagemarker extract "sample-files/XRDD 4:2025 FINAL.pdf" snippets.json \
 1. **Offset Hack**: Using `end_of_page` + offset+1 gives correct EPUB semantics with high success rate
 2. **Beginning of page strategy**: Attempted but only 72.7% success due to repeated headers/section titles
 3. **Trade-off**: Sacrificed 2 markers (231 vs 232) for correct page navigation semantics
+
+## Session Notes (2025-01-19) - XRID December 2025 Magazine (Two-Column)
+
+### Test Files
+- **PDF**: `sample-files/2025-12-xrid/XRID DECEMB 2025 FINAL.pdf` (88 pages total)
+- **HTML**: `sample-files/2025-12-xrid/xridDECEMB2025enomeno-aris-fn-check.html`
+- **Output**: `sample-files/2025-12-xrid/XRID_December_marked.html`
+- **Snippets**: `sample-files/2025-12-xrid/snippets_manual_fixed.json`
+
+### PDF Structure
+- Pages 1-4: Frontmatter (excluded)
+- Pages 5-56: Body content (52 pages) → Magazine pages 722-773
+- Pages 57+: Index/backmatter (excluded)
+- Page offset: **717** (with +1 offset hack: 722 - 5 + 1 = 718, but we use 717 in extraction)
+
+### Two-Column PDF Challenges Discovered
+
+**Problem 1: `--two-column` flag has column sorting issues**
+- Text at same y-coordinate gets sorted incorrectly
+- Creates garbled snippets like "τα τακτικά , ελλείπει δικαστήρια" instead of proper reading order
+
+**Problem 2: Standard extraction gets wrong column**
+- Without `--two-column`, extracts from left column (which extends lower on page)
+- Left column footnotes get included even with font filtering
+
+**Problem 3: Word completion extends beyond page breaks**
+- HTML word completion finds the complete word but extends INTO next page content
+- Causes markers to be placed inside page content rather than at boundaries
+- Solution: Use `--raw-pdf` or manually fix snippets
+
+**Problem 4: Footnote numbers in HTML break matching**
+- PDF: "διαιτησίας. Η διαιτησία"
+- HTML: "διαιτησίας24. Η διαιτησία" (footnote "24" inserted)
+- Solution: Strip footnotes from HTML for matching, or adjust snippets
+
+**Problem 5: Hyphenated words at line ends**
+- PDF has "αντισυμ-\nβαλλομένων" split across lines
+- Dehyphenation may not fully reconstruct
+- These snippets fail to match
+
+### Recommended Workflow for Two-Column PDFs
+
+```bash
+# Step 1: Extract with footnote filtering (NOT --two-column)
+rx-pagemarker extract "magazine.pdf" snippets.json "magazine.html" \
+  --start-page 5 --end-page 55 --page-offset 717 \
+  --min-font-size 9.0
+
+# Step 2: Mark and check results
+rx-pagemarker mark magazine.html snippets.json output.html --inject-css
+
+# Step 3: Use visual editor for failed markers
+# Open tools/page-marker-editor.html
+```
+
+**Key flags:**
+| Flag | Purpose |
+|------|---------|
+| `--min-font-size 9.0` | Filter footnotes (adjust based on PDF - check footnote font size) |
+| `--start-page` / `--end-page` | Exclude frontmatter/backmatter not in HTML |
+| `--page-offset` | Offset hack formula: `first_mag_page - first_pdf_page + 1` |
+| `--raw-pdf` | Disable word completion if it extends snippets beyond page breaks |
+
+### Results
+- **30/52 markers** (57.7%) inserted automatically
+- **22 markers** needed manual positioning via visual editor
+- Pages 722 and 723 correctly positioned as requested
+
+### Why Not Use `--two-column` Flag?
+
+> **⚠️ WARNING: Do NOT use `--two-column` - it has column sorting bugs that create garbled text.**
+
+The `--two-column` flag was designed for column-aware extraction but has issues:
+1. Column sorting within same y-coordinate is unreliable
+2. Creates garbled text that doesn't match HTML
+3. Standard extraction + `--min-font-size` filtering produces better results
+
+### Practical Expectations for Two-Column PDFs
+- **Expect 50-60% automated success rate** (vs 97%+ for single-column)
+- Plan to use visual editor for remaining markers
+- Main failure causes:
+  - Hyphenated words at line ends
+  - Footnote numbers in HTML
+  - Column reading order issues
+  - Page headers (e.g., "KE/2025") not in HTML
