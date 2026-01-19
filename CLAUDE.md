@@ -180,6 +180,9 @@ These markers enable EPUB page-list navigation, citation compatibility with prin
 - **Morphological coverage**: Some rare Greek word forms not in top-10k frequency list
 - **PDF extraction edge cases**: ~1.7% of pages may have extraction issues requiring manual snippets
 
+### Best Practices
+- **Markers in titles/headings**: If a page marker lands at the beginning of a title or heading, use the visual editor to move it to the start of the first body paragraph instead. This ensures cleaner EPUB rendering and avoids disrupting heading styles.
+
 ## Architecture
 
 ### Pipeline Overview
