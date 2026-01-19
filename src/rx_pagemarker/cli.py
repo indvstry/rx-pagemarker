@@ -50,6 +50,10 @@ def mark(
     page markers at the specified locations. The markers can span across
     formatting tags like <i>, <b>, <span>.
 
+    Markers are placed AFTER snippet text. For correct EPUB page navigation,
+    use a +1 page offset during extraction so markers indicate where the
+    NEXT page begins (see README for the "offset hack" explanation).
+
     \b
     Examples:
         rx-pagemarker mark book.html pages.json output.html
@@ -128,7 +132,7 @@ def generate(num_pages: int, output_file: Path, start_page: int, roman: bool) ->
 @click.option(
     "--strategy",
     "-s",
-    type=click.Choice(["end_of_page", "bottom_visual"]),
+    type=click.Choice(["end_of_page", "bottom_visual", "beginning_of_page"]),
     default="end_of_page",
     help="Snippet selection strategy (default: end_of_page)",
 )
@@ -201,6 +205,12 @@ def generate(num_pages: int, output_file: Path, start_page: int, roman: bool) ->
     default=8.5,
     help="Minimum font size for body text (smaller text treated as footnotes, default: 8.5pt)",
 )
+@click.option(
+    "--context-words",
+    type=int,
+    default=4,
+    help="Number of context words to capture before/after snippet for disambiguation (default: 4, 0 to disable)",
+)
 def extract(
     pdf_file: Path,
     output_json: Path,
@@ -220,6 +230,7 @@ def extract(
     no_default_excludes: bool,
     include_footnotes: bool,
     min_font_size: float,
+    context_words: int,
 ) -> None:
     """Extract text snippets from PDF file for page marker generation.
 
@@ -234,8 +245,9 @@ def extract(
 
     \b
     Strategies:
-      end_of_page     - Last N words from extracted text (faster, simpler)
-      bottom_visual   - Text from visually lowest position (better for complex layouts)
+      end_of_page       - Last N words from extracted text (default, for page markers)
+      bottom_visual     - Text from visually lowest position (for complex layouts)
+      beginning_of_page - First N words from extracted text (cleaner, for citations)
 
     \b
     Backends:
@@ -259,6 +271,9 @@ def extract(
 
       # Extract with 8 words per snippet using pdfplumber
       rx-pagemarker extract book.pdf snippets.json book.html -w 8 -b pdfplumber
+
+      # Use beginning_of_page strategy for cleaner snippets
+      rx-pagemarker extract book.pdf snippets.json book.html --strategy beginning_of_page
 
       # Include footnotes (normally skipped)
       rx-pagemarker extract book.pdf snippets.json book.html --include-footnotes
@@ -302,6 +317,7 @@ def extract(
             skip_footnotes=not include_footnotes,  # Skip by default, include if flag set
             min_font_size=min_font_size,
             complete_words_html_path=html_file if (not fuzzy_match and not raw_pdf) else None,
+            context_words=context_words,
         )
 
         # Extract snippets

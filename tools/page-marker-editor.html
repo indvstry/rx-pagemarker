@@ -1,0 +1,1117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Page Marker Editor - RX Page Marker</title>
+    <style>
+        /*
+         * Page Marker Editor Styles
+         *
+         * Layout: Header (title) → Toolbar (actions) → Main (instructions + editor)
+         *
+         * Key visual elements:
+         * - .page-marker: Red badges that users drag around
+         * - #drop-cursor: Blue blinking line showing where marker will land
+         * - .toast: Bottom-right notifications for user feedback
+         */
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: #f5f5f5;
+            color: #333;
+        }
+
+        /* ==================== HEADER ==================== */
+        .header {
+            background: linear-gradient(135deg, #2c3e50, #3498db);
+            color: white;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        }
+
+        .header h1 {
+            margin: 0 0 5px 0;
+            font-size: 24px;
+        }
+
+        .header p {
+            margin: 0;
+            opacity: 0.9;
+            font-size: 14px;
+        }
+
+        /* ==================== TOOLBAR ==================== */
+        /* Contains: Load button, Undo/Redo, Zoom, Download, Stats */
+        .toolbar {
+            background: white;
+            padding: 15px 20px;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+            border-bottom: 1px solid #ddd;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .toolbar button, .toolbar label {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: #3498db;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #2980b9;
+        }
+
+        .btn-success {
+            background: #27ae60;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #219a52;
+        }
+
+        .btn-secondary {
+            background: #95a5a6;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #7f8c8d;
+        }
+
+        #fileInput {
+            display: none;
+        }
+
+        .file-label {
+            background: #3498db;
+            color: white;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .file-label:hover {
+            background: #2980b9;
+        }
+
+        .stats {
+            margin-left: auto;
+            font-size: 14px;
+            color: #666;
+        }
+
+        .stats strong {
+            color: #27ae60;
+        }
+
+        /* ==================== MAIN LAYOUT ==================== */
+        /* Flexbox layout: Instructions sidebar (280px) + Editor area (flex: 1) */
+        .main {
+            display: flex;
+            height: calc(100vh - 140px);
+        }
+
+        /* ==================== INSTRUCTIONS SIDEBAR ==================== */
+        /* Left panel with usage instructions (hidden on mobile) */
+        .instructions {
+            width: 280px;
+            background: white;
+            padding: 20px;
+            border-right: 1px solid #ddd;
+            overflow-y: auto;
+        }
+
+        .instructions h3 {
+            margin: 0 0 15px 0;
+            color: #2c3e50;
+            font-size: 16px;
+        }
+
+        .instructions ol {
+            padding-left: 20px;
+            margin: 0;
+        }
+
+        .instructions li {
+            margin-bottom: 12px;
+            line-height: 1.5;
+            font-size: 14px;
+        }
+
+        .instructions .tip {
+            background: #e8f6fd;
+            border-left: 3px solid #3498db;
+            padding: 10px;
+            margin-top: 20px;
+            font-size: 13px;
+        }
+
+        .instructions kbd {
+            background: #eee;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 12px;
+            border: 1px solid #ccc;
+        }
+
+        /* ==================== EDITOR AREA ==================== */
+        /* Main content area with paper-like styling for the document */
+        .editor-container {
+            flex: 1;
+            overflow: auto;
+            padding: 30px;
+            background: #fafafa;
+        }
+
+        .editor {
+            background: white;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 40px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            border-radius: 5px;
+            min-height: 500px;
+        }
+
+        .editor.empty {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #999;
+            font-size: 18px;
+            text-align: center;
+        }
+
+        /* ==================== DOCUMENT CONTENT ==================== */
+        /* Styling for loaded HTML content */
+        .editor p, .editor div {
+            line-height: 1.8;
+            margin-bottom: 1em;
+        }
+
+        /* ==================== PAGE MARKERS ==================== */
+        /*
+         * Draggable page number badges
+         * - Red gradient background for high visibility
+         * - Cursor changes to grab/grabbing during drag
+         * - Subtle hover animation for interactivity
+         * - .dragging class applied during drag operation
+         */
+        .page-marker {
+            display: inline-block;
+            background: linear-gradient(135deg, #e74c3c, #c0392b);
+            color: white;
+            padding: 2px 8px;
+            margin: 0 2px;
+            border-radius: 3px;
+            font-size: 12px;
+            font-weight: bold;
+            cursor: grab;
+            user-select: none;
+            transition: transform 0.15s, box-shadow 0.15s;
+            vertical-align: middle;
+        }
+
+        .page-marker:hover {
+            transform: scale(1.1);
+            box-shadow: 0 2px 8px rgba(231, 76, 60, 0.4);
+        }
+
+        .page-marker.dragging {
+            opacity: 0.4;
+            cursor: grabbing;
+        }
+
+        /* ==================== DROP CURSOR ==================== */
+        /*
+         * Visual indicator for drop position during drag
+         *
+         * This is a key part of our smooth drag UX. Instead of inserting
+         * a DOM element during drag (which causes layout thrashing), we
+         * use an absolutely positioned element that floats above content.
+         *
+         * Position is updated via JavaScript using Range.getBoundingClientRect()
+         * to match the caret position under the cursor.
+         */
+        #drop-cursor {
+            position: absolute;
+            width: 3px;
+            height: 20px;
+            background: #3498db;
+            pointer-events: none;
+            z-index: 1000;
+            display: none;
+            animation: blink 0.5s infinite alternate;
+        }
+
+        #drop-cursor.visible {
+            display: block;
+        }
+
+        @keyframes blink {
+            from { opacity: 0.5; }
+            to { opacity: 1; }
+        }
+
+        /* ==================== ZOOM CONTROLS ==================== */
+        /* +/- buttons with percentage display in between */
+        .zoom-controls {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .zoom-controls button {
+            width: 30px;
+            height: 30px;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+
+        .zoom-level {
+            min-width: 50px;
+            text-align: center;
+            font-size: 14px;
+        }
+
+        /* ==================== UNDO/REDO CONTROLS ==================== */
+        /* Buttons are disabled when at beginning/end of history */
+        .history-controls {
+            display: flex;
+            gap: 5px;
+        }
+
+        .history-controls button {
+            padding: 10px 15px;
+        }
+
+        .history-controls button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* ==================== TOAST NOTIFICATIONS ==================== */
+        /*
+         * Temporary notifications that slide up from bottom-right
+         * - Default: dark background
+         * - .success: green background
+         * - .error: red background
+         * - Auto-hides after 2 seconds via JavaScript
+         */
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #2c3e50;
+            color: white;
+            padding: 15px 25px;
+            border-radius: 5px;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.2);
+            transform: translateY(100px);
+            opacity: 0;
+            transition: all 0.3s;
+            z-index: 1000;
+        }
+
+        .toast.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+
+        .toast.success {
+            background: #27ae60;
+        }
+
+        .toast.error {
+            background: #e74c3c;
+        }
+
+        /* ==================== RESPONSIVE ==================== */
+        /* Hide instructions sidebar on narrow screens (<900px) */
+        @media (max-width: 900px) {
+            .instructions {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Page Marker Editor</h1>
+        <p>Drag and drop page markers to correct positions</p>
+    </div>
+
+    <div class="toolbar">
+        <input type="file" id="fileInput" accept=".html,.htm">
+        <label for="fileInput" class="file-label btn-primary">
+            <span>Load HTML File</span>
+        </label>
+
+        <div class="history-controls">
+            <button id="undoBtn" class="btn-secondary" disabled title="Undo (Ctrl+Z)">Undo</button>
+            <button id="redoBtn" class="btn-secondary" disabled title="Redo (Ctrl+Y)">Redo</button>
+        </div>
+
+        <div class="zoom-controls">
+            <button id="zoomOut" class="btn-secondary">-</button>
+            <span class="zoom-level" id="zoomLevel">100%</span>
+            <button id="zoomIn" class="btn-secondary">+</button>
+        </div>
+
+        <button id="downloadBtn" class="btn-success" disabled>Download Corrected HTML</button>
+
+        <div class="stats" id="stats"></div>
+    </div>
+
+    <div class="main">
+        <div class="instructions">
+            <h3>How to Use</h3>
+            <ol>
+                <li><strong>Load</strong> your marked HTML file using the button above</li>
+                <li><strong>Drag</strong> any red page marker badge to move it</li>
+                <li><strong>Drop</strong> it between words where the page break should be</li>
+                <li><strong>Download</strong> the corrected HTML when done</li>
+            </ol>
+
+            <div class="tip">
+                <strong>Tip:</strong> Use <kbd>Ctrl</kbd>+<kbd>Z</kbd> to undo and <kbd>Ctrl</kbd>+<kbd>Y</kbd> to redo. Zoom with the +/- buttons for detailed positioning.
+            </div>
+
+            <h3 style="margin-top: 25px;">About Markers</h3>
+            <p style="font-size: 14px; line-height: 1.5;">
+                Page markers indicate where each page begins in the print edition.
+                They should be placed <em>before</em> the first word of each page.
+            </p>
+        </div>
+
+        <div class="editor-container">
+            <div class="editor empty" id="editor">Load an HTML file to start editing</div>
+        </div>
+    </div>
+
+    <!-- Drop cursor (positioned absolutely) -->
+    <div id="drop-cursor"></div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        /**
+         * Page Marker Editor - Visual drag-and-drop editor for EPUB page markers
+         *
+         * PURPOSE:
+         * This editor allows non-technical users to visually reposition page markers
+         * in HTML files. Page markers indicate where each page begins in the print
+         * edition, enabling EPUB readers to provide page-list navigation.
+         *
+         * ARCHITECTURE:
+         * - File Loading: Uses FileReader API to load HTML files client-side
+         * - DOM Parsing: DOMParser converts HTML string to manipulable DOM
+         * - Drag & Drop: Custom mouse event-based system (not HTML5 Drag API)
+         * - History: Array-based undo/redo with DOM node cloning
+         * - Export: XMLSerializer converts DOM back to HTML string
+         *
+         * WHY MOUSE EVENTS INSTEAD OF HTML5 DRAG API?
+         * The HTML5 Drag API has several issues with text content:
+         * 1. Causes visual glitches when dragging over text nodes
+         * 2. "dragover" events don't provide precise caret positions
+         * 3. Text selections interfere with drag operations
+         * 4. Drop targets must be elements, not positions within text
+         *
+         * Our approach uses mousedown/mousemove/mouseup events which:
+         * - Allow precise positioning using caretPositionFromPoint/caretRangeFromPoint
+         * - Avoid DOM manipulation during drag (only update CSS-positioned cursor)
+         * - Provide consistent behavior across browsers
+         *
+         * KNOWN LIMITATION:
+         * XMLSerializer (used for export) reformats HTML:
+         * - Adds xmlns attributes to elements
+         * - May reorder attributes alphabetically
+         * - Collapses some whitespace
+         * The semantic content is preserved, but formatting may differ from original.
+         *
+         * @author RX Page Marker Team
+         * @see CLAUDE.md for project context and workflow documentation
+         */
+
+        // ============================================================
+        // STATE MANAGEMENT
+        // ============================================================
+
+        /** @type {string} Original HTML content for preserving <head> during export */
+        let originalHTML = '';
+
+        /** @type {HTMLElement[]} Stack of editor states for undo/redo (cloned DOM nodes) */
+        let history = [];
+
+        /** @type {number} Current position in history stack (-1 = no history) */
+        let historyIndex = -1;
+
+        /** @type {number} Current zoom level as percentage (50-200) */
+        let zoom = 100;
+
+        /** @type {HTMLElement|null} The marker element currently being dragged */
+        let draggedMarker = null;
+
+        /**
+         * Current drop target position
+         * @type {{node: Text, offset: number}|null}
+         * - node: The text node where marker will be inserted
+         * - offset: Character position within the text node
+         */
+        let dropTarget = null;
+
+        // ============================================================
+        // DOM ELEMENT REFERENCES
+        // ============================================================
+
+        const fileInput = document.getElementById('fileInput');
+        const editor = document.getElementById('editor');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const undoBtn = document.getElementById('undoBtn');
+        const redoBtn = document.getElementById('redoBtn');
+        const zoomInBtn = document.getElementById('zoomIn');
+        const zoomOutBtn = document.getElementById('zoomOut');
+        const zoomLevelEl = document.getElementById('zoomLevel');
+        const statsEl = document.getElementById('stats');
+        const toastEl = document.getElementById('toast');
+        const dropCursor = document.getElementById('drop-cursor');
+
+        // ============================================================
+        // FILE LOADING
+        // ============================================================
+
+        /**
+         * Handle file input change event
+         * Reads the selected HTML file and loads it into the editor
+         */
+        fileInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            // Use FileReader API to read file contents as text
+            // This works entirely client-side - no server needed
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                originalHTML = e.target.result;  // Store for later export
+                loadContent(originalHTML);
+                showToast('File loaded successfully', 'success');
+            };
+            reader.onerror = function() {
+                showToast('Error loading file', 'error');
+            };
+            reader.readAsText(file);
+        });
+
+        /**
+         * Load and process HTML content into the editor
+         *
+         * This function:
+         * 1. Parses HTML string into a DOM document
+         * 2. Finds all page markers (class="page-number" or role="note")
+         * 3. Converts them to our internal draggable format (class="page-marker")
+         * 4. Copies body content into the editor area
+         * 5. Initializes history for undo/redo
+         *
+         * The marker conversion is necessary because:
+         * - Original markers use semantic HTML (role="note", aria-label)
+         * - Editor markers need drag functionality (data-id, event handlers)
+         * - On export, we convert back to the original semantic format
+         *
+         * @param {string} html - The HTML content to load
+         */
+        function loadContent(html) {
+            // Parse HTML string into a DOM document
+            // DOMParser is safer than innerHTML as it doesn't execute scripts
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+            const body = doc.body;
+
+            if (!body) {
+                showToast('Invalid HTML file', 'error');
+                return;
+            }
+
+            // Convert semantic page markers to draggable editor markers
+            // We look for both class="page-number" and role="note" to be flexible
+            const markers = body.querySelectorAll('.page-number, span[role="note"]');
+            let markerIndex = 0;
+            markers.forEach(function(marker) {
+                const pageNum = marker.textContent.trim();
+
+                // Create new marker element with editor-specific attributes
+                const newMarker = document.createElement('span');
+                newMarker.className = 'page-marker';           // CSS styling class
+                newMarker.setAttribute('data-page', pageNum);  // Page number for display/export
+                newMarker.setAttribute('data-id', 'marker-' + markerIndex);  // Unique ID for tracking
+                newMarker.setAttribute('draggable', 'true');   // Enable drag (though we use mouse events)
+                newMarker.textContent = pageNum;
+
+                // Replace original marker with our editor version
+                marker.replaceWith(newMarker);
+                markerIndex++;
+            });
+
+            // Clear editor and copy body content into it
+            // We clone nodes to avoid moving them from the parsed document
+            editor.textContent = '';
+            Array.from(body.childNodes).forEach(function(node) {
+                editor.appendChild(node.cloneNode(true));
+            });
+            editor.classList.remove('empty');
+
+            // Initialize history with current state as the starting point
+            // This enables undo back to the original loaded state
+            history = [editor.cloneNode(true)];
+            historyIndex = 0;
+            updateButtons();
+            updateStats();
+            setupMarkerDragging();
+
+            downloadBtn.disabled = false;
+        }
+
+        // ============================================================
+        // DRAG AND DROP SYSTEM
+        // ============================================================
+        //
+        // We use a custom mouse event-based drag system instead of the HTML5
+        // Drag and Drop API. This provides better control over text positioning.
+        //
+        // Flow:
+        // 1. mousedown on marker → startDrag() captures the marker
+        // 2. mousemove → onDrag() updates drop cursor position
+        // 3. mouseup → endDrag() moves marker to drop position
+        //
+        // Key insight: We never modify the DOM during dragging. Instead, we
+        // use a CSS-positioned cursor element (#drop-cursor) to show where
+        // the marker will land. DOM changes only happen on drop.
+        // ============================================================
+
+        /**
+         * Attach mousedown listeners to all markers in the editor
+         * Called after loading content or restoring from history
+         */
+        function setupMarkerDragging() {
+            const markers = editor.querySelectorAll('.page-marker');
+            markers.forEach(function(marker) {
+                marker.addEventListener('mousedown', startDrag);
+            });
+        }
+
+        /**
+         * Begin dragging a marker
+         * Sets up global mousemove/mouseup listeners for the drag operation
+         *
+         * @param {MouseEvent} e - The mousedown event on a marker
+         */
+        function startDrag(e) {
+            // Only respond to left mouse button
+            if (e.button !== 0) return;
+
+            // Store reference to the marker being dragged
+            draggedMarker = e.target;
+            draggedMarker.classList.add('dragging');  // Visual feedback (opacity)
+
+            // Attach listeners to document (not marker) to track mouse everywhere
+            document.addEventListener('mousemove', onDrag);
+            document.addEventListener('mouseup', endDrag);
+
+            // Prevent text selection while dragging
+            e.preventDefault();
+        }
+
+        /**
+         * Handle mouse movement during drag
+         * Updates the visual drop cursor position based on mouse coordinates
+         *
+         * @param {MouseEvent} e - The mousemove event
+         */
+        function onDrag(e) {
+            if (!draggedMarker) return;
+
+            // Get the text position under the cursor
+            const pos = getCaretPosition(e.clientX, e.clientY);
+
+            if (pos && editor.contains(pos.node)) {
+                // Walk up the DOM tree to check if we're inside another marker
+                // We don't want to allow dropping a marker inside itself or another marker
+                let node = pos.node;
+                let insideMarker = false;
+                while (node && node !== editor) {
+                    if (node.classList && node.classList.contains('page-marker')) {
+                        insideMarker = true;
+                        break;
+                    }
+                    node = node.parentNode;
+                }
+
+                // Valid drop target: inside editor, not inside a marker
+                if (!insideMarker) {
+                    dropTarget = pos;
+                    showDropCursor(pos);
+                    return;
+                }
+            }
+
+            // Invalid position - hide cursor and clear target
+            dropTarget = null;
+            hideDropCursor();
+        }
+
+        /**
+         * End the drag operation
+         * If there's a valid drop target, moves the marker there
+         *
+         * @param {MouseEvent} e - The mouseup event
+         */
+        function endDrag(e) {
+            // Clean up event listeners
+            document.removeEventListener('mousemove', onDrag);
+            document.removeEventListener('mouseup', endDrag);
+
+            hideDropCursor();
+
+            if (!draggedMarker) return;
+
+            draggedMarker.classList.remove('dragging');
+
+            // Move marker if we have a valid drop target
+            if (dropTarget && dropTarget.node) {
+                moveMarker(draggedMarker, dropTarget);
+            }
+
+            // Reset drag state
+            draggedMarker = null;
+            dropTarget = null;
+        }
+
+        /**
+         * Get the text position (node + offset) at screen coordinates
+         *
+         * This is the key function that enables precise text positioning.
+         * It uses browser APIs to find the exact character position under the cursor.
+         *
+         * Browser support:
+         * - Firefox: document.caretPositionFromPoint() - returns CaretPosition
+         * - Chrome/Safari: document.caretRangeFromPoint() - returns Range
+         *
+         * @param {number} x - Screen X coordinate
+         * @param {number} y - Screen Y coordinate
+         * @returns {{node: Node, offset: number}|null} Position info or null if not found
+         */
+        function getCaretPosition(x, y) {
+            let range;
+
+            // Firefox uses caretPositionFromPoint
+            if (document.caretPositionFromPoint) {
+                const pos = document.caretPositionFromPoint(x, y);
+                if (pos) {
+                    return { node: pos.offsetNode, offset: pos.offset };
+                }
+            }
+            // Chrome/Safari use caretRangeFromPoint
+            else if (document.caretRangeFromPoint) {
+                range = document.caretRangeFromPoint(x, y);
+                if (range) {
+                    return { node: range.startContainer, offset: range.startOffset };
+                }
+            }
+
+            return null;
+        }
+
+        /**
+         * Show the visual drop cursor at a text position
+         *
+         * The cursor is a CSS-positioned element that floats above the content.
+         * We calculate its position by creating a zero-width Range at the target
+         * position and getting its bounding rectangle.
+         *
+         * Why not just insert an element? Inserting/removing DOM nodes during
+         * drag causes layout thrashing and visual glitches. A positioned element
+         * outside the content flow is much smoother.
+         *
+         * @param {{node: Node, offset: number}} pos - The target position
+         */
+        function showDropCursor(pos) {
+            // Only show cursor for text nodes
+            if (pos.node.nodeType !== Node.TEXT_NODE) {
+                hideDropCursor();
+                return;
+            }
+
+            // Create a zero-width Range to get the caret position's coordinates
+            const range = document.createRange();
+            range.setStart(pos.node, pos.offset);
+            range.setEnd(pos.node, pos.offset);
+
+            // getBoundingClientRect() gives us screen coordinates
+            const rect = range.getBoundingClientRect();
+
+            // Position the cursor element
+            dropCursor.style.left = rect.left + 'px';
+            dropCursor.style.top = rect.top + 'px';
+            dropCursor.style.height = '20px';
+            dropCursor.classList.add('visible');
+        }
+
+        /**
+         * Hide the visual drop cursor
+         */
+        function hideDropCursor() {
+            dropCursor.classList.remove('visible');
+        }
+
+        /**
+         * Move a marker to a new position in the document
+         *
+         * This is the core DOM manipulation that happens on drop. The algorithm:
+         *
+         * 1. Create a new marker element (we can't just move the old one because
+         *    we need to split a text node)
+         *
+         * 2. Split the target text node at the drop offset:
+         *    Before: "Hello world" (single text node)
+         *    After:  "Hello " + [MARKER] + "world" (text + element + text)
+         *
+         * 3. Remove the original marker
+         *
+         * 4. Insert the three new nodes (before text, marker, after text)
+         *
+         * Why split the text node? HTML text content is stored in Text nodes.
+         * To insert an element in the middle of text, we must split the Text node
+         * into two parts and insert the element between them.
+         *
+         * @param {HTMLElement} marker - The marker element to move
+         * @param {{node: Text, offset: number}} target - Where to move it
+         */
+        function moveMarker(marker, target) {
+            // Validate: we can only insert into text nodes
+            if (!target.node || target.node.nodeType !== Node.TEXT_NODE) {
+                showToast('Invalid drop position', 'error');
+                return;
+            }
+
+            // Preserve marker attributes for the new element
+            const pageNum = marker.getAttribute('data-page');
+            const markerId = marker.getAttribute('data-id');
+
+            // Create new marker element
+            const newMarker = document.createElement('span');
+            newMarker.className = 'page-marker';
+            newMarker.setAttribute('data-page', pageNum);
+            newMarker.setAttribute('data-id', markerId);
+            newMarker.setAttribute('draggable', 'true');
+            newMarker.textContent = pageNum;
+
+            // Get the text node we're splitting
+            const textNode = target.node;
+            const offset = target.offset;
+            const text = textNode.textContent;
+
+            // Split text at offset
+            // Example: "Hello world" at offset 6 → "Hello " and "world"
+            const before = text.substring(0, offset);
+            const after = text.substring(offset);
+
+            const parent = textNode.parentNode;
+
+            // Remove old marker from its current position
+            marker.remove();
+
+            // Create new text nodes for before/after content
+            const beforeNode = document.createTextNode(before);
+            const afterNode = document.createTextNode(after);
+
+            // Insert the three new nodes in place of the original text node
+            // Order: before text → marker → after text
+            parent.insertBefore(beforeNode, textNode);
+            parent.insertBefore(newMarker, textNode);
+            parent.insertBefore(afterNode, textNode);
+
+            // Remove the original unsplit text node
+            parent.removeChild(textNode);
+
+            // Attach drag handler to the new marker
+            newMarker.addEventListener('mousedown', startDrag);
+
+            // Save state for undo and notify user
+            saveState();
+            showToast('Marker ' + pageNum + ' moved', 'success');
+        }
+
+        // ============================================================
+        // HISTORY (UNDO/REDO) SYSTEM
+        // ============================================================
+        //
+        // The history system stores complete snapshots of the editor DOM.
+        // This is simpler than tracking individual operations (command pattern)
+        // and ensures perfect restoration of any previous state.
+        //
+        // Trade-off: Uses more memory, but for typical documents with a few
+        // dozen markers, this is negligible. We limit to 50 states max.
+        //
+        // History structure:
+        //   [state0, state1, state2, ...]
+        //           ^
+        //           historyIndex
+        //
+        // - Undo moves historyIndex left
+        // - Redo moves historyIndex right
+        // - New action after undo truncates future states
+        // ============================================================
+
+        /**
+         * Save current editor state to history
+         *
+         * Called after every marker move. Handles the common case where
+         * user undoes something, then makes a new change - we discard
+         * the "future" states that are no longer reachable.
+         */
+        function saveState() {
+            // If we're not at the end of history, truncate future states
+            // This happens when user undoes, then makes a new change
+            if (historyIndex < history.length - 1) {
+                history = history.slice(0, historyIndex + 1);
+            }
+
+            // Clone the entire editor DOM tree
+            // cloneNode(true) performs a deep clone including all children
+            history.push(editor.cloneNode(true));
+            historyIndex = history.length - 1;
+
+            // Prevent unbounded memory growth
+            // Keep maximum 50 states (plenty for typical editing sessions)
+            if (history.length > 50) {
+                history.shift();       // Remove oldest state
+                historyIndex--;        // Adjust index to match
+            }
+
+            updateButtons();
+            updateStats();
+        }
+
+        /**
+         * Undo the last action
+         * Restores the previous state from history
+         */
+        function undo() {
+            if (historyIndex > 0) {
+                historyIndex--;
+                restoreState(history[historyIndex]);
+            }
+        }
+
+        /**
+         * Redo a previously undone action
+         * Restores the next state from history
+         */
+        function redo() {
+            if (historyIndex < history.length - 1) {
+                historyIndex++;
+                restoreState(history[historyIndex]);
+            }
+        }
+
+        /**
+         * Restore editor content from a saved state
+         *
+         * @param {HTMLElement} savedEditor - A cloned editor DOM tree
+         */
+        function restoreState(savedEditor) {
+            // Clear current content
+            editor.textContent = '';
+
+            // Clone and insert all child nodes from saved state
+            // We clone again because we might redo back to this state
+            Array.from(savedEditor.childNodes).forEach(function(node) {
+                editor.appendChild(node.cloneNode(true));
+            });
+            editor.classList.remove('empty');
+
+            // Re-attach event listeners to markers (they don't persist in clones)
+            setupMarkerDragging();
+            updateButtons();
+            updateStats();
+        }
+
+        /**
+         * Update undo/redo button enabled states based on history position
+         */
+        function updateButtons() {
+            undoBtn.disabled = historyIndex <= 0;
+            redoBtn.disabled = historyIndex >= history.length - 1;
+        }
+
+        /**
+         * Update the marker count display in the toolbar
+         */
+        function updateStats() {
+            const markers = editor.querySelectorAll('.page-marker');
+            const count = markers.length;
+            statsEl.textContent = '';
+            const strong = document.createElement('strong');
+            strong.textContent = count;
+            statsEl.appendChild(strong);
+            statsEl.appendChild(document.createTextNode(' page marker' + (count !== 1 ? 's' : '')));
+        }
+
+        // ============================================================
+        // ZOOM CONTROLS
+        // ============================================================
+
+        /**
+         * Set the editor zoom level
+         * Clamps value between 50% and 200%
+         *
+         * @param {number} value - Zoom percentage (50-200)
+         */
+        function setZoom(value) {
+            zoom = Math.max(50, Math.min(200, value));
+            editor.style.fontSize = zoom + '%';
+            zoomLevelEl.textContent = zoom + '%';
+        }
+
+        // Zoom button event listeners
+        zoomInBtn.addEventListener('click', function() { setZoom(zoom + 10); });
+        zoomOutBtn.addEventListener('click', function() { setZoom(zoom - 10); });
+
+        // ============================================================
+        // EVENT LISTENERS
+        // ============================================================
+
+        // Undo/Redo button clicks
+        undoBtn.addEventListener('click', undo);
+        redoBtn.addEventListener('click', redo);
+
+        // Keyboard shortcuts (Ctrl+Z / Ctrl+Y or Cmd+Z / Cmd+Y on Mac)
+        document.addEventListener('keydown', function(e) {
+            if (e.ctrlKey || e.metaKey) {
+                if (e.key === 'z') {
+                    e.preventDefault();
+                    undo();
+                } else if (e.key === 'y') {
+                    e.preventDefault();
+                    redo();
+                }
+            }
+        });
+
+        // ============================================================
+        // DOWNLOAD / EXPORT
+        // ============================================================
+
+        /**
+         * Download button click handler
+         *
+         * Exports the edited content as an HTML file. The process:
+         *
+         * 1. Parse the original HTML to preserve <head> and other metadata
+         * 2. Clone current editor content
+         * 3. Convert editor markers (class="page-marker") back to semantic format
+         *    (class="page-number" role="note" aria-label="Page X")
+         * 4. Replace body content in original document
+         * 5. Serialize to HTML string and trigger download
+         *
+         * NOTE: XMLSerializer may reformat the HTML (reorder attributes,
+         * collapse whitespace). The semantic content is preserved.
+         */
+        downloadBtn.addEventListener('click', function() {
+            // Parse original HTML to preserve <head> section
+            const parser = new DOMParser();
+            const originalDoc = parser.parseFromString(originalHTML, 'text/html');
+
+            // Clone current editor content to a temporary container
+            const tempDiv = document.createElement('div');
+            Array.from(editor.childNodes).forEach(function(node) {
+                tempDiv.appendChild(node.cloneNode(true));
+            });
+
+            // Convert editor markers back to semantic EPUB format
+            // Editor format:  <span class="page-marker" data-page="5">5</span>
+            // Export format:  <span class="page-number" role="note" aria-label="Page 5">5</span>
+            const markers = tempDiv.querySelectorAll('.page-marker');
+            markers.forEach(function(marker) {
+                const pageNum = marker.getAttribute('data-page');
+
+                // Create semantic marker with accessibility attributes
+                const newMarker = document.createElement('span');
+                newMarker.className = 'page-number';
+                newMarker.setAttribute('role', 'note');                    // ARIA role
+                newMarker.setAttribute('aria-label', 'Page ' + pageNum);   // Screen reader text
+                newMarker.textContent = pageNum;
+
+                marker.replaceWith(newMarker);
+            });
+
+            // Replace body content in original document structure
+            originalDoc.body.textContent = '';
+            Array.from(tempDiv.childNodes).forEach(function(node) {
+                originalDoc.body.appendChild(node.cloneNode(true));
+            });
+
+            // Serialize document to HTML string
+            // XMLSerializer handles the conversion but may reformat the output
+            const serializer = new XMLSerializer();
+            const output = '<!DOCTYPE html>\n' + serializer.serializeToString(originalDoc);
+
+            // Trigger file download using Blob and temporary link
+            const blob = new Blob([output], { type: 'text/html;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'corrected.html';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);  // Clean up blob URL
+
+            showToast('File downloaded!', 'success');
+        });
+
+        // ============================================================
+        // TOAST NOTIFICATIONS
+        // ============================================================
+
+        /**
+         * Show a temporary notification toast
+         *
+         * @param {string} message - The message to display
+         * @param {string} [type] - Optional type: 'success' or 'error' for styling
+         */
+        function showToast(message, type) {
+            toastEl.textContent = message;
+            toastEl.className = 'toast' + (type ? ' ' + type : '');
+            toastEl.classList.add('show');
+
+            // Auto-hide after 2 seconds
+            setTimeout(function() {
+                toastEl.classList.remove('show');
+            }, 2000);
+        }
+    </script>
+</body>
+</html>

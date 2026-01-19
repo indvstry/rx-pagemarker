@@ -1,7 +1,9 @@
 """Page marker insertion for HTML files."""
 
 import json
+import re
 import sys
+import unicodedata
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -46,6 +48,8 @@ class PageMarkerInserter:
             "not_found": 0,
             "multiple_matches": 0,
         }
+        # Track failed pages for reporting
+        self.failed_pages: List[Dict[str, Any]] = []
         # Track position for sequential insertion (container index + position within)
         self._last_insertion_container_idx: int = -1
         self._last_insertion_position: int = 0  # Position within the container
@@ -126,6 +130,196 @@ class PageMarkerInserter:
 
         return self._containers
 
+    def _normalize_word(self, word: str) -> str:
+        """Normalize a word for comparison by removing accents and lowercasing.
+
+        Handles Greek accents (tonos, dialytika) for better matching.
+
+        Args:
+            word: Word to normalize
+
+        Returns:
+            Normalized word (lowercase, no accents)
+        """
+        # NFD decomposition separates base characters from combining marks
+        normalized = unicodedata.normalize("NFD", word.lower())
+        # Remove combining diacritical marks (accents)
+        return "".join(c for c in normalized if unicodedata.category(c) != "Mn")
+
+    def _jaccard_similarity(self, words1: List[str], words2: List[str]) -> float:
+        """Calculate Jaccard similarity between two word lists.
+
+        Uses normalized words for comparison to handle accent differences.
+
+        Args:
+            words1: First list of words
+            words2: Second list of words
+
+        Returns:
+            Similarity score between 0.0 and 1.0
+        """
+        if not words1 or not words2:
+            return 0.0
+
+        set1 = {self._normalize_word(w) for w in words1}
+        set2 = {self._normalize_word(w) for w in words2}
+
+        intersection = len(set1 & set2)
+        union = len(set1 | set2)
+
+        return intersection / union if union > 0 else 0.0
+
+    def _extract_html_context(
+        self, container_text: str, position: int, snippet_len: int, num_words: int = 4
+    ) -> Tuple[str, str]:
+        """Extract context words before and after a match position in HTML.
+
+        Args:
+            container_text: Full text of the container
+            position: Start position of the snippet match
+            snippet_len: Length of the matched snippet
+            num_words: Number of context words to extract
+
+        Returns:
+            Tuple of (context_before, context_after)
+        """
+        # Text before the snippet
+        text_before = container_text[:position]
+        words_before = text_before.split()
+        context_before = " ".join(words_before[-num_words:]) if words_before else ""
+
+        # Text after the snippet
+        text_after = container_text[position + snippet_len:]
+        words_after = text_after.split()
+        context_after = " ".join(words_after[:num_words]) if words_after else ""
+
+        return (context_before, context_after)
+
+    def _score_context_match(
+        self,
+        container_text: str,
+        position: int,
+        snippet_len: int,
+        expected_before: str,
+        expected_after: str,
+    ) -> float:
+        """Score how well the context around a match position matches expected context.
+
+        Uses Jaccard word similarity with Greek accent normalization.
+        Weights are 40% before-context, 60% after-context (empirically chosen;
+        can be adjusted based on extraction strategy and content type).
+
+        Args:
+            container_text: Full text of the container
+            position: Start position of the snippet match
+            snippet_len: Length of the matched snippet
+            expected_before: Expected context before (from PDF)
+            expected_after: Expected context after (from PDF)
+
+        Returns:
+            Similarity score between 0.0 and 1.0
+        """
+        actual_before, actual_after = self._extract_html_context(
+            container_text, position, snippet_len
+        )
+
+        before_words = expected_before.split() if expected_before else []
+        after_words = expected_after.split() if expected_after else []
+        actual_before_words = actual_before.split()
+        actual_after_words = actual_after.split()
+
+        before_score = self._jaccard_similarity(before_words, actual_before_words)
+        after_score = self._jaccard_similarity(after_words, actual_after_words)
+
+        # Weighted average of before/after scores (40/60 split, empirically chosen)
+        # If only one context is available, use just that one
+        if expected_before and expected_after:
+            return 0.4 * before_score + 0.6 * after_score
+        elif expected_after:
+            return after_score
+        elif expected_before:
+            return before_score
+        else:
+            return 0.0
+
+    def find_all_snippet_locations(
+        self, snippet: str, search_after_idx: int = -1, search_after_pos: int = 0
+    ) -> List[Tuple[NavigableString, int, int, int, str]]:
+        """Find ALL occurrences of snippet after the current position.
+
+        Used for context-based disambiguation when multiple matches exist.
+
+        Args:
+            snippet: Text snippet to search for
+            search_after_idx: Container index of last insertion
+            search_after_pos: Position within that container of last insertion
+
+        Returns:
+            List of tuples: (text_node, position_in_node, container_index,
+                           marker_position, container_text)
+        """
+        # Handle page break marker
+        if "|" in snippet:
+            parts = snippet.split("|", 1)
+            snippet_before = parts[0].strip()
+            snippet_after = parts[1].strip() if len(parts) > 1 else ""
+            search_snippet = f"{snippet_before} {snippet_after}".strip()
+            marker_offset = len(snippet_before)
+        else:
+            search_snippet = snippet
+            marker_offset = len(snippet)
+
+        if self.soup is None:
+            raise ValueError("HTML not loaded. Call load_html() first.")
+
+        containers = self._get_containers()
+        locations = []
+
+        for idx, container in enumerate(containers):
+            # Skip containers before our current position
+            if idx < search_after_idx:
+                continue
+
+            combined_text = container.get_text()
+
+            # Find ALL occurrences in this container
+            start_pos = 0
+            while True:
+                snippet_start = combined_text.find(search_snippet, start_pos)
+                if snippet_start == -1:
+                    break
+
+                marker_position = snippet_start + marker_offset
+
+                # If same container as last insertion, must be after that position
+                if idx == search_after_idx and marker_position <= search_after_pos:
+                    start_pos = snippet_start + 1
+                    continue
+
+                # Walk through all text nodes to find where marker should go
+                current_pos = 0
+
+                for node in container.descendants:
+                    if isinstance(node, NavigableString):
+                        if node.parent.name in ["script", "style", "head"]:
+                            continue
+
+                        node_text = str(node)
+                        node_length = len(node_text)
+
+                        if current_pos < marker_position <= current_pos + node_length:
+                            position_in_node = marker_position - current_pos
+                            locations.append((
+                                node, position_in_node, idx, marker_position, combined_text
+                            ))
+                            break
+
+                        current_pos += node_length
+
+                start_pos = snippet_start + 1
+
+        return locations
+
     def create_page_marker(self, page_number: Union[str, int]) -> Tag:
         """Create a page marker span element.
 
@@ -148,15 +342,19 @@ class PageMarkerInserter:
     def find_snippet_location(
         self, snippet: str, search_after_idx: int = -1, search_after_pos: int = 0
     ) -> Tuple[Optional[NavigableString], Optional[int], int, int]:
-        """Find where a snippet ends, using sequential position tracking.
+        """Find where to place a marker after a snippet.
 
         This method searches through containers in document order, but only
         considers positions AFTER the last insertion point. This allows
         multiple page markers within the same container (paragraph).
 
+        Markers are placed AFTER the snippet text. For EPUB page navigation,
+        use a +1 page offset so the marker at the END of page N is labeled
+        as page N+1 (indicating where the next page begins).
+
         Supports page break marker "|" in snippets:
         - "word1 word2|word3 word4" searches for "word1 word2 word3 word4"
-        - But returns position after "word2" (the page break point)
+        - Returns position at the "|" marker point
 
         Args:
             snippet: Text snippet to search for (may contain | for page break)
@@ -174,11 +372,11 @@ class PageMarkerInserter:
             snippet_after = parts[1].strip() if len(parts) > 1 else ""
             # Search for combined context (without the |)
             search_snippet = f"{snippet_before} {snippet_after}".strip()
-            # We'll find position after snippet_before
+            # Position at the | marker
             marker_offset = len(snippet_before)
         else:
             search_snippet = snippet
-            snippet_before = snippet
+            # Marker goes AFTER snippet
             marker_offset = len(snippet)
 
         if self.soup is None:
@@ -232,7 +430,13 @@ class PageMarkerInserter:
 
         return (None, None, -1, 0)
 
-    def insert_page_marker(self, page_number: Union[str, int], snippet: str) -> bool:
+    def insert_page_marker(
+        self,
+        page_number: Union[str, int],
+        snippet: str,
+        context_before: Optional[str] = None,
+        context_after: Optional[str] = None,
+    ) -> bool:
         """Insert a page marker after the specified snippet.
 
         Uses sequential position tracking: each marker is only placed AFTER
@@ -240,20 +444,94 @@ class PageMarkerInserter:
         ordering even when snippet text appears multiple times, including
         multiple page breaks within the same paragraph.
 
+        When context is provided and multiple matches exist, uses Jaccard
+        similarity scoring to select the best match.
+
         Args:
             page_number: Page number to insert
             snippet: Text snippet that marks the insertion point
+            context_before: Optional context words before snippet (from PDF)
+            context_after: Optional context words after snippet (from PDF)
 
         Returns:
             True if successful, False otherwise
         """
-        text_node, position_in_node, container_idx, container_pos = self.find_snippet_location(
-            snippet, self._last_insertion_container_idx, self._last_insertion_position
-        )
+        # Determine snippet length for context scoring
+        if "|" in snippet:
+            parts = snippet.split("|", 1)
+            snippet_before = parts[0].strip()
+            snippet_after = parts[1].strip() if len(parts) > 1 else ""
+            search_snippet = f"{snippet_before} {snippet_after}".strip()
+        else:
+            search_snippet = snippet
+
+        snippet_len = len(search_snippet)
+
+        # Check if we have context for disambiguation
+        has_context = bool(context_before or context_after)
+
+        if has_context:
+            # Find ALL matching locations for context-based selection
+            all_locations = self.find_all_snippet_locations(
+                snippet, self._last_insertion_container_idx, self._last_insertion_position
+            )
+
+            if len(all_locations) > 1:
+                # Multiple matches - use context to disambiguate
+                best_location = None
+                best_score = -1.0
+
+                for loc in all_locations:
+                    text_node, position_in_node, container_idx, marker_position, container_text = loc
+                    # Calculate snippet start position from marker position
+                    # marker_position is where the marker goes:
+                    # - Without |: after the full search_snippet
+                    # - With |: after snippet_before (the | marker point)
+                    if "|" in snippet:
+                        actual_snippet_start = marker_position - len(snippet_before)
+                    else:
+                        actual_snippet_start = marker_position - len(search_snippet)
+
+                    score = self._score_context_match(
+                        container_text, actual_snippet_start, snippet_len,
+                        context_before or "", context_after or ""
+                    )
+
+                    if score > best_score:
+                        best_score = score
+                        best_location = loc
+
+                # Use context match if score >= 0.3 (empirically chosen threshold requiring
+                # at least ~1/3 word overlap to avoid false positives from unrelated context)
+                if best_score >= 0.3 and best_location is not None:
+                    text_node, position_in_node, container_idx, container_pos, _ = best_location
+                    self.stats["context_used"] = self.stats.get("context_used", 0) + 1
+                    print(f"  ℹ Page {page_number}: Context disambiguation used (score: {best_score:.2f})")
+                else:
+                    # Fall back to first sequential match - warn user as placement may be wrong
+                    text_node, position_in_node, container_idx, container_pos, _ = all_locations[0]
+                    self.stats["context_fallback"] = self.stats.get("context_fallback", 0) + 1
+                    print(f"  ⚠ Page {page_number}: Context score too low ({best_score:.2f}), using first sequential match - verify placement")
+            elif len(all_locations) == 1:
+                # Single match - use it directly
+                text_node, position_in_node, container_idx, container_pos, _ = all_locations[0]
+            else:
+                text_node, position_in_node, container_idx, container_pos = None, None, -1, 0
+        else:
+            # No context - use original sequential matching
+            text_node, position_in_node, container_idx, container_pos = self.find_snippet_location(
+                snippet, self._last_insertion_container_idx, self._last_insertion_position
+            )
 
         if text_node is None or position_in_node is None:
             print(f"  ✗ Page {page_number}: Snippet not found after container {self._last_insertion_container_idx}:{self._last_insertion_position}")
             self.stats["not_found"] += 1
+            self.failed_pages.append({
+                "page": page_number,
+                "snippet": snippet,
+                "last_container": self._last_insertion_container_idx,
+                "last_position": self._last_insertion_position,
+            })
             return False
 
         # Create the page marker
@@ -289,6 +567,9 @@ class PageMarkerInserter:
         Pages are processed in ascending order to ensure sequential placement.
         Sequential position tracking ensures each marker is placed AFTER the
         previous one in document order.
+
+        If entries contain context_before/context_after fields, these are used
+        for disambiguation when multiple matches exist.
         """
         print("\nInserting page markers...")
 
@@ -316,7 +597,11 @@ class PageMarkerInserter:
                 self.stats["not_found"] += 1
                 continue
 
-            self.insert_page_marker(page, snippet)
+            # Extract context for disambiguation (if present in JSON)
+            context_before = entry.get("context_before")
+            context_after = entry.get("context_after")
+
+            self.insert_page_marker(page, snippet, context_before, context_after)
 
     def _inject_page_number_css(self) -> None:
         """Inject CSS styling for page-number markers into the HTML head."""
@@ -413,6 +698,7 @@ class PageMarkerInserter:
         """Print processing statistics."""
         total = self.stats["found"] + self.stats["not_found"]
         out_of_order = self.stats.get("out_of_order", 0)
+        context_used = self.stats.get("context_used", 0)
         kept = self.stats["found"] - out_of_order
 
         print("\n" + "=" * 50)
@@ -422,6 +708,11 @@ class PageMarkerInserter:
         print(f"Successfully found:  {self.stats['found']}")
         print(f"Not found:           {self.stats['not_found']}")
         print(f"Multiple matches:    {self.stats['multiple_matches']}")
+        if context_used > 0:
+            print(f"Context disambiguations: {context_used}")
+        context_fallback = self.stats.get("context_fallback", 0)
+        if context_fallback > 0:
+            print(f"Context fallbacks:   {context_fallback} ⚠ (verify these placements)")
         if out_of_order > 0:
             print(f"Out-of-order removed: {out_of_order}")
             print(f"Final markers kept:  {kept}")
@@ -433,6 +724,35 @@ class PageMarkerInserter:
             print("  • Check for typos or extra spaces")
             print("  • Snippet may exist in a skipped element (script, style, head)")
             print("  • Try a slightly different snippet from nearby text")
+            self._print_failed_report()
+
+    def _print_failed_report(self) -> None:
+        """Print detailed report of failed page insertions."""
+        if not self.failed_pages:
+            return
+
+        print("\n" + "=" * 50)
+        print("FAILED PAGES REPORT")
+        print("=" * 50)
+        print(f"\nPages that could not be inserted: {', '.join(str(f['page']) for f in self.failed_pages)}")
+        print("\nDetails:")
+        print("-" * 50)
+
+        for failure in self.failed_pages:
+            page = failure["page"]
+            snippet = failure["snippet"]
+            last_container = failure["last_container"]
+            last_position = failure["last_position"]
+
+            # Truncate snippet for display
+            display_snippet = snippet[:60] + "..." if len(snippet) > 60 else snippet
+
+            print(f"\nPage {page}:")
+            print(f"  Snippet: \"{display_snippet}\"")
+            print(f"  Searched after: container {last_container}, position {last_position}")
+            print(f"  Possible causes:")
+            print(f"    - Snippet text doesn't exist in HTML")
+            print(f"    - Snippet exists only before position {last_position} (duplicate text)")
 
     def run(self) -> None:
         """Execute the full page marker insertion process."""

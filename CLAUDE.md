@@ -82,7 +82,78 @@ These markers enable EPUB page-list navigation, citation compatibility with prin
   - After filtering + position tracking: **228/232 markers (98.3%)**
 - **Remaining issues**: 4 pages with PDF extraction problems (791, 825, 862, 897)
 
-## Current Status (as of 2025-01-14)
+### Phase 9: Page Offset Hack for EPUB Navigation (2025-01-15)
+- **Problem**: EPUB readers expect page markers to indicate where a page BEGINS
+  - `end_of_page` strategy extracts last words of page N → marker placed after them
+  - Semantically this marks "end of page N" not "beginning of page N+1"
+  - A `beginning_of_page` strategy was attempted but had lower success rate (72.7%)
+    - Page beginnings have more repeated content (section headers, common phrases)
+    - Sequential tracking rejects more duplicates
+- **Solution**: The "Offset Hack"
+  - Use `end_of_page` strategy (98% success rate due to unique text)
+  - Add +1 to page offset so marker at END of page N is labeled as page N+1
+  - Result: Marker says "776" right where page 776 content begins
+  - Semantically correct for EPUB while keeping high extraction success
+- **Implementation**:
+  - Markers always placed AFTER snippet text (simplified, removed `--position-after` flag)
+  - User applies +1 to `--page-offset` value
+  - Example: PDF page 7 = magazine page 775, use `--page-offset 769` (not 768)
+- **Results on XRDD 4/2025**:
+  - 226/231 markers (97.8%) with correct EPUB semantics
+  - Only 5 pages need manual attention
+
+### Phase 10: Context Matching for Duplicate Disambiguation (2025-01-17)
+- **Problem**: Sequential tracking rejects snippets that appear earlier, but can't distinguish between multiple valid positions
+  - Example: "του δικαστηρίου" appears on pages 200, 500, and 900
+  - Sequential tracking finds page 200's occurrence for page 900's snippet
+  - No way to select the correct occurrence when context differs
+- **Solution**: Capture and use context during matching
+  - Extract N words before/after snippet during PDF extraction
+  - Store in JSON: `context_before` and `context_after` fields
+  - During HTML matching, score all occurrences using Jaccard word similarity
+  - Select best match if score ≥ 0.3, otherwise fall back to first sequential match
+- **Implementation**:
+  - `--context-words N` flag (default: 4, 0 to disable)
+  - Greek accent normalization for robust matching
+  - Weighted scoring: 40% before-context, 60% after-context (after is more reliable for `end_of_page`)
+- **JSON format change**:
+  ```json
+  {
+    "page": 900,
+    "snippet": "του δικαστηρίου",
+    "context_before": "η απόφαση",
+    "context_after": "είναι τελεσίδικη"
+  }
+  ```
+- **Statistics**: Validation and extraction now report context coverage
+
+### Phase 11: Visual Marker Editor (2025-01-17)
+- **Purpose**: Browser-based tool for non-technical users to correct marker positions
+- **Location**: `tools/page-marker-editor.html`
+- **Features**:
+  - Single HTML file - no server, no dependencies, works offline
+  - Load any marked HTML file via file picker
+  - Page markers appear as red draggable badges
+  - Drag markers to correct positions between words
+  - Visual drop indicator shows insertion point
+  - Undo/Redo support (Ctrl+Z / Ctrl+Y)
+  - Zoom controls for detailed positioning
+  - Download corrected HTML preserving original document structure
+  - Toast notifications for user feedback
+- **Usage**:
+  1. Open `tools/page-marker-editor.html` in any browser
+  2. Click "Load HTML File" and select your marked HTML
+  3. Drag red markers to correct positions
+  4. Click "Download Corrected HTML"
+- **Sample file**: `examples/sample_with_markers.html` for testing
+- **Known limitation**: The download uses XMLSerializer which reformats HTML:
+  - Adds `<!DOCTYPE html>` declaration
+  - Collapses whitespace and indentation
+  - May reorder attributes (e.g., `class` before `id`)
+  - Content and structure remain identical, only formatting changes
+  - Safe for EPUB generation; not suitable if exact byte-for-byte preservation is needed
+
+## Current Status (as of 2025-01-17)
 
 ### Production Ready
 - ✅ Full CLI tool with professional packaging
@@ -90,7 +161,7 @@ These markers enable EPUB page-list navigation, citation compatibility with prin
 - ✅ Advanced text reconstruction for broken PDFs
 - ✅ Expanded Greek dictionary (~10k most frequent words from Hermit Dave's lists)
 - ✅ Comprehensive validation and reporting
-- ✅ Strong test coverage (58 tests)
+- ✅ Strong test coverage (79 tests)
 - ✅ **Production metadata filtering** - Auto-removes InDesign sluglines and timestamps
 - ✅ **Magazine PDF support** - Tested with 272-page legal magazine (98.3% marker insertion rate)
 - ✅ **Dehyphenation** - Rejoins words split across lines
@@ -101,6 +172,8 @@ These markers enable EPUB page-list navigation, citation compatibility with prin
 - ✅ **Context-based correction** - Fixes merged words using anchor sequences from HTML
 - ✅ **CSS injection** - `--inject-css` for visible page markers in browser
 - ✅ **Sequential position tracking** - Handles duplicate snippets and multiple page breaks per paragraph
+- ✅ **Context matching** - Disambiguates duplicate snippets using surrounding words (`--context-words`)
+- ✅ **Visual marker editor** - Browser-based drag-and-drop tool for correcting marker positions
 
 ### Known Issues
 - **HTML matching performance**: Slow for 500+ page PDFs (several minutes)
@@ -108,6 +181,48 @@ These markers enable EPUB page-list navigation, citation compatibility with prin
 - **PDF extraction edge cases**: ~1.7% of pages may have extraction issues requiring manual snippets
 
 ## Architecture
+
+### Pipeline Overview
+
+```mermaid
+flowchart LR
+    subgraph Input
+        PDF[PDF File]
+        HTML[HTML Export]
+    end
+
+    subgraph Extraction
+        Extract[rx-pagemarker extract]
+        JSON[(snippets.json)]
+    end
+
+    subgraph Insertion
+        Mark[rx-pagemarker mark]
+        Marked[marked.html]
+    end
+
+    subgraph Correction
+        Editor[Visual Editor]
+        Corrected[corrected.html]
+    end
+
+    PDF --> Extract
+    HTML --> Extract
+    Extract --> JSON
+    JSON --> Mark
+    HTML --> Mark
+    Mark --> Marked
+    Marked -.->|if needed| Editor
+    Editor -.-> Corrected
+    Marked --> EPUB[EPUB Generator]
+    Corrected --> EPUB
+```
+
+**Workflow:**
+1. **Extract**: Pull page-ending snippets from PDF, with context for disambiguation
+2. **Mark**: Insert page markers into HTML at snippet locations
+3. **Correct** *(optional)*: Use visual editor to fix any misplaced markers
+4. **Generate**: Feed marked HTML to EPUB generator for page-list navigation
 
 ### Core Modules (`src/rx_pagemarker/`)
 - `cli.py` - Click-based command-line interface
@@ -125,8 +240,11 @@ These markers enable EPUB page-list navigation, citation compatibility with prin
 # HTML file is required for word completion and context correction
 rx-pagemarker extract book.pdf snippets.json book.html
 
-# For magazines with page offset (PDF page 7 = print page 775)
-rx-pagemarker extract magazine.pdf snippets.json mag.html --start-page 7 --page-offset 768
+# For magazines with page offset - USE THE OFFSET HACK!
+# PDF page 7 = print page 775, but use offset 769 (775-7+1) for correct EPUB semantics
+# The +1 ensures markers indicate where pages BEGIN, not where they END
+rx-pagemarker extract magazine.pdf snippets.json mag.html \
+  --start-page 7 --end-page 237 --page-offset 769
 
 # Raw PDF extraction without HTML (faster but less accurate)
 rx-pagemarker extract book.pdf snippets.json --raw-pdf
@@ -156,22 +274,63 @@ rx-pagemarker generate 200 pages.json
 rx-pagemarker mark book.html pages.json output.html
 ```
 
+#### Two-Column Layouts (Multiple Articles per Page)
+
+For magazines/journals where different articles share the same page (e.g., left column = Article A, right column = Article B), both articles need separate page markers with the same page number.
+
+**The tool supports duplicate page numbers.** Add multiple entries with the same page but different snippets:
+
+```json
+[
+  {"page": 35, "snippet": "end of previous content"},
+  {"page": 36, "snippet": "Εισαγωγή στην έννοια της αδικοπραξίας"},
+  {"page": 36, "snippet": "Η νομολογία του Αρείου Πάγου"},
+  {"page": 37, "snippet": "..."}
+]
+```
+
+**Requirements:**
+- Snippets must be different (they will be - different articles)
+- Snippets must appear in HTML in the same order as the JSON
+- After extraction, manually duplicate entries for two-column pages
+
+**Workflow:**
+1. Run `rx-pagemarker extract` normally (extracts one snippet per PDF page)
+2. Identify pages where multiple articles start
+3. Manually add entries for the second column's article start
+4. Run `rx-pagemarker mark` - both markers will be inserted
+5. When HTML is split into article files later, each article keeps its page marker
+
 ## Roadmap & Next Steps
 
 ### High Priority
-1. **Optimize HTML matching algorithm** - Reduce 500+ page processing from minutes to seconds
+1. ~~**Visual marker editor**~~ ✅ **Completed in Phase 11** - `tools/page-marker-editor.html`
+2. **Optimize HTML matching algorithm** - Reduce 500+ page processing from minutes to seconds
 
 ### Medium Priority
-2. **Multi-language support** - Add frequency dictionaries for other languages (English, French, etc.)
-3. **Enhanced morphological coverage** - Add morphological rules or expanded word forms for Greek
-4. **Context matching** - Disambiguate duplicate snippets using surrounding text
-5. **Smart snippet refinement** - Auto-adjust snippets that appear multiple times
+3. **Multi-language support** - Add frequency dictionaries for other languages (English, French, etc.)
+4. **Enhanced morphological coverage** - Add morphological rules or expanded word forms for Greek
+5. ~~**Context matching** - Disambiguate duplicate snippets using surrounding text~~ ✅ **Completed in Phase 10**
+6. **Smart snippet refinement** - Auto-adjust snippets that appear multiple times
+7. **Multi-column extraction** - Extract multiple snippets from same page for two-column layouts
+   - **Use case**: Magazine pages where left and right columns contain different articles
+   - Both articles start on same page number and need separate markers
+   - After HTML is split into individual article files, each keeps its page marker
+   - **Open questions**:
+     - Flag design: `--2col` for all pages vs `--2col-pages 36,42,78` for specific pages?
+     - Column detection: Split at 50% width, or use pdfplumber layout analysis?
+     - Page numbering: Same number for both (`36`, `36`) or labeled (`36a`, `36b`)?
+   - **Current workaround**: Manually duplicate JSON entries with different snippets:
+     ```json
+     {"page": 36, "snippet": "start of left column article"},
+     {"page": 36, "snippet": "start of right column article"}
+     ```
 
 ### Future Enhancements
-6. **Interactive preview mode** - Preview matches before insertion
-7. **Batch processing** - Process multiple HTML files at once
-8. **OCR support** - Handle image-based PDFs with Tesseract
-9. **Neural word segmentation** - ML model for language-agnostic segmentation
+8. **Interactive preview mode** - Preview matches before insertion
+9. **Batch processing** - Process multiple HTML files at once
+10. **OCR support** - Handle image-based PDFs with Tesseract
+11. **Neural word segmentation** - ML model for language-agnostic segmentation
 
 ## Technical Decisions
 
@@ -189,6 +348,38 @@ rx-pagemarker mark book.html pages.json output.html
 - **Accuracy**: Perfect word boundaries when HTML source is available
 - **Trade-off**: Slower than segmentation but higher quality
 - **Use case**: Best for InDesign exports where you have both PDF and clean HTML
+
+### The Offset Hack: Why +1 to page offset?
+EPUB page navigation expects markers to indicate where a page **begins**. We solve this with a minor offset adjustment:
+
+**The Problem:**
+- `end_of_page` strategy extracts last words of page N
+- Marker placed after those words marks "end of page N"
+- But EPUB readers expect "Page 776" to jump to where page 776 **starts**
+
+**Why not use `beginning_of_page`?**
+- Page beginnings have more repeated content (headers, section titles)
+- Only 72.7% success rate vs 97.8% for `end_of_page`
+- Sequential position tracking rejects more duplicates
+
+**The Solution:**
+- Use `end_of_page` (high success rate)
+- Add +1 to page offset
+- Marker at END of page 775 gets labeled "776"
+- Reader clicking "Page 776" lands right where page 776 content begins
+
+**Formula:**
+```
+offset = first_magazine_page - first_pdf_page + 1
+       = 775 - 7 + 1 = 769
+```
+
+**Visual:**
+```
+...end of page 775 content[776]beginning of page 776 content...
+                          ↑
+           Marker labeled 776 placed at page break
+```
 
 ## Project Structure
 
@@ -240,7 +431,7 @@ flake8 src/ tests/
 ## Production Use Cases
 
 ### XRDD Magazine (Χρονικά Δικονομικού Δικαίου)
-Legal magazine successfully processed with 98.3% marker insertion rate.
+Legal magazine successfully processed with 97.8% marker insertion rate using the offset hack.
 
 **Magazine structure:**
 - 272-page PDF with continuing page numbers from previous issues
@@ -248,51 +439,53 @@ Legal magazine successfully processed with 98.3% marker insertion rate.
 - Pages 7-238: Body content (232 pages) → Magazine pages 775-1006
 - Pages 239-272: Backmatter - not in HTML export
 
-**Extraction command:**
+**Extraction command (with offset hack):**
 ```bash
+# Note: --page-offset 769 (not 768) for correct EPUB semantics
+# Formula: 775 - 7 + 1 = 769
 rx-pagemarker extract "XRDD_4_2025.pdf" snippets.json "XRDD_body.html" \
-  --start-page 7 --end-page 238 --page-offset 768
+  --start-page 7 --end-page 237 --page-offset 769
 ```
 
 **Key flags for magazine workflow:**
 | Flag | Value | Purpose |
 |------|-------|---------|
 | `--start-page` | 7 | Skip frontmatter not in HTML |
-| `--end-page` | 238 | Skip backmatter not in HTML |
-| `--page-offset` | 768 | PDF page 7 = magazine page 775 |
+| `--end-page` | 237 | Skip backmatter (end-1 because we label next page) |
+| `--page-offset` | 769 | Offset hack: 775-7+1 for correct EPUB semantics |
 
-**Results:** 228/232 markers (98.3%), 4 pages needed manual snippets due to PDF extraction issues.
+**Results:** 226/231 markers (97.8%), 5 pages needed manual snippets.
 
 ## Related Projects
 - **rx-ind-epub-gen**: EPUB3 generator from InDesign HTML exports
 - Uses same quality standards and conventions
 
-## Session Notes (2025-01-14) - XRDD 4/2025 Magazine
+## Session Notes (2025-01-15) - XRDD 4/2025 Magazine
 
 ### Test Files
 - **PDF**: `sample-files/XRDD 4:2025 FINAL.pdf` (272 pages total)
 - **HTML**: `sample-files/XRDDD4 2025ENOMENO-fixed-class.html`
-- **Output**: `sample-files/XRDDD4 2025ENOMENO-fixed-class_with_pages.html`
-- **Snippets**: `sample-files/XRDD4_2025_snippets.json` (232 entries for body pages)
+- **Output**: `sample-files/XRDDD4_end_offset.html` (with offset hack)
+- **Snippets**: Generated with offset hack for correct EPUB semantics
 
 ### PDF Structure
 - Pages 1-6: Frontmatter (excluded)
 - Pages 7-238: Body content (232 pages) → Magazine pages 775-1006
 - Pages 239-272: Backmatter (excluded)
-- Page offset: 768 (PDF page 7 = magazine page 775)
+- Page offset: **769** (with +1 offset hack for EPUB semantics)
 
-### Extraction Command Used
+### Extraction Command (with Offset Hack)
 ```bash
-rx-pagemarker extract "sample-files/XRDD 4:2025 FINAL.pdf" /tmp/snippets_body.json \
+rx-pagemarker extract "sample-files/XRDD 4:2025 FINAL.pdf" snippets.json \
   "sample-files/XRDDD4 2025ENOMENO-fixed-class.html" \
-  --start-page 7 --end-page 238 --page-offset 768
+  --start-page 7 --end-page 237 --page-offset 769
 ```
 
 ### Results
-- 228/232 markers inserted (98.3%)
-- 4 pages with extraction issues: **791, 825, 862, 897**
+- 226/231 markers inserted (97.8%)
+- 5 pages with issues: **792, 826, 863, 884, 898**
 
-### Next Steps
-1. Investigate the 4 failing pages - likely PDF text extraction issues
-2. May need manual snippet entry for those pages
-3. Consider committing the sequential tracking improvements
+### Key Learnings
+1. **Offset Hack**: Using `end_of_page` + offset+1 gives correct EPUB semantics with high success rate
+2. **Beginning of page strategy**: Attempted but only 72.7% success due to repeated headers/section titles
+3. **Trade-off**: Sacrificed 2 markers (231 vs 232) for correct page navigation semantics

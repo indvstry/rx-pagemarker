@@ -74,7 +74,7 @@ class PDFExtractor:
         backend: Literal["auto", "pymupdf", "pdfplumber"] = "auto",
         snippet_words: int = 10,
         min_words: int = 3,
-        strategy: Literal["end_of_page", "bottom_visual"] = "end_of_page",
+        strategy: Literal["end_of_page", "bottom_visual", "beginning_of_page"] = "end_of_page",
         segment_words: bool = False,
         language: str = "el",
         match_html_path: Optional[Union[str, Path]] = None,
@@ -83,6 +83,7 @@ class PDFExtractor:
         skip_footnotes: bool = False,
         min_font_size: float = 8.5,
         complete_words_html_path: Optional[Union[str, Path]] = None,
+        context_words: int = 4,
     ) -> None:
         """Initialize PDF extractor.
 
@@ -94,6 +95,7 @@ class PDFExtractor:
             strategy: How to select snippets:
                 - "end_of_page": Last N words of extracted text
                 - "bottom_visual": Text from visually lowest position on page
+                - "beginning_of_page": First N words of extracted text
             segment_words: Enable word boundary reconstruction for PDFs with missing spaces
             language: Language code for word segmentation (e.g., 'el' for Greek)
             match_html_path: Optional path to HTML file for matching-based correction
@@ -105,6 +107,8 @@ class PDFExtractor:
             min_font_size: Minimum font size to include (smaller text treated as footnotes)
             complete_words_html_path: Optional path to HTML file for word completion only
                 (fast - completes partial words at end of snippets using HTML reference)
+            context_words: Number of words to capture before/after snippet for disambiguation
+                (default: 4, set to 0 to disable context extraction)
 
         Raises:
             InvalidParameterError: If snippet_words or min_words are invalid
@@ -131,6 +135,7 @@ class PDFExtractor:
         self.match_html_path = Path(match_html_path) if match_html_path else None
         self.skip_footnotes = skip_footnotes
         self.min_font_size = min_font_size
+        self.context_words = context_words
 
         # Build list of exclude patterns
         self.exclude_patterns: List[re.Pattern[str]] = []
@@ -208,6 +213,8 @@ class PDFExtractor:
             "successful": 0,
             "insufficient_text": 0,
             "failed": 0,
+            "context_extracted": 0,
+            "context_partial": 0,
         }
 
     def _filter_production_metadata(self, text: str) -> str:
@@ -279,6 +286,36 @@ class PDFExtractor:
 
         return snippet
 
+    def _trim_to_start_boundary(self, snippet: str) -> str:
+        """Trim snippet to start at a natural boundary if possible.
+
+        For beginning_of_page strategy, only trims if snippet starts with
+        punctuation or whitespace (indicating mid-sentence extraction).
+        Preserves snippets that start with letters (even lowercase).
+
+        Args:
+            snippet: Raw snippet text
+
+        Returns:
+            Snippet trimmed to start at natural boundary, or original if no boundary found
+        """
+        if not snippet:
+            return snippet
+
+        # If snippet starts with a letter (uppercase or lowercase), keep it as-is
+        # This preserves Greek text that often starts with lowercase
+        first_char = snippet[0]
+        if first_char.isalpha():
+            return snippet
+
+        # Only trim if snippet starts with punctuation/whitespace
+        # Look for a letter after the initial non-letter characters
+        match = re.search(r'[A-Za-zΑ-Ωα-ωά-ώ]', snippet)
+        if match:
+            return snippet[match.start():]
+
+        return snippet
+
     def _clean_snippet(self, snippet: str, html_text: Optional[str] = None) -> str:
         """Clean up snippet for better matching.
 
@@ -312,6 +349,126 @@ class PDFExtractor:
                     cleaned = corrected
 
         return cleaned
+
+    def _clean_snippet_beginning(self, snippet: str, html_text: Optional[str] = None) -> str:
+        """Clean up beginning-of-page snippet for better matching.
+
+        Completes partial first word and normalizes spacing for better HTML matching.
+        If HTML text is provided, attempts to complete partial words at the beginning.
+
+        Note: Context correction is skipped for beginning_of_page as it's designed
+        for end_of_page snippets and would pull wrong context direction.
+
+        Args:
+            snippet: Raw snippet text
+            html_text: Optional HTML text content for word completion
+
+        Returns:
+            Cleaned snippet
+        """
+        cleaned = snippet.strip()
+
+        # Normalize spacing around slashes and punctuation
+        cleaned = re.sub(r"\s+/\s*", "/", cleaned)
+        cleaned = re.sub(r"\s*/\s+", "/", cleaned)
+
+        # Try to complete partial words at the beginning if HTML is available
+        if html_text and cleaned:
+            cleaned = self._complete_first_word(cleaned, html_text)
+            # Note: Skip context correction for beginning_of_page - it extracts
+            # in wrong direction (designed for end_of_page)
+
+        return cleaned
+
+    def _extract_context(
+        self, page_text: str, snippet: str, num_words: int = 4
+    ) -> tuple[str, str]:
+        """Extract context words before and after snippet in page text.
+
+        Used for disambiguating duplicate snippets during HTML matching.
+        When the same snippet text appears multiple times in the document,
+        the context helps identify which occurrence is correct.
+
+        Args:
+            page_text: Full text of the page
+            snippet: The extracted snippet
+            num_words: Number of context words to capture (default: 4)
+
+        Returns:
+            Tuple of (context_before, context_after) as space-separated words.
+            Empty strings if context couldn't be extracted.
+        """
+        if num_words <= 0 or not snippet or not page_text:
+            return ("", "")
+
+        # Find snippet in page text
+        snippet_pos = page_text.find(snippet)
+        if snippet_pos == -1:
+            return ("", "")
+
+        # Extract text before and after snippet
+        text_before = page_text[:snippet_pos]
+        text_after = page_text[snippet_pos + len(snippet) :]
+
+        # Get last N words before snippet
+        words_before = text_before.split()
+        context_before = " ".join(words_before[-num_words:]) if words_before else ""
+
+        # Get first N words after snippet
+        words_after = text_after.split()
+        context_after = " ".join(words_after[:num_words]) if words_after else ""
+
+        return (context_before, context_after)
+
+    def _complete_first_word(self, snippet: str, html_text: str) -> str:
+        """Complete partial word at beginning of snippet by finding full word in HTML.
+
+        If snippet starts with incomplete word like "χυση" (from "σύγχυση"), finds the
+        complete word in HTML using context (words that follow) to find the right occurrence.
+
+        Args:
+            snippet: Snippet potentially starting with partial word
+            html_text: HTML text to search for complete word
+
+        Returns:
+            Snippet with first word completed if possible
+        """
+        words = snippet.split()
+        if not words:
+            return snippet
+
+        first_word = words[0]
+
+        # Check if first word exists in HTML as a whole word (not substring)
+        word_pattern = r'(?:^|[\s])' + re.escape(first_word) + r'(?:[\s.,;:!?\)]|$)'
+        if re.search(word_pattern, html_text):
+            return snippet
+
+        # Use context (following words) to find the correct completion
+        # Build context pattern from next 2-3 words after the incomplete word
+        if len(words) >= 2:
+            # Try with 2 words of context
+            context = " ".join(words[1:3])  # words after first
+            # Pattern: (prefix)first_word + context
+            context_pattern = r'(\w+)' + re.escape(first_word) + r'\s+' + re.escape(context)
+            match = re.search(context_pattern, html_text, re.UNICODE)
+            if match:
+                complete_word = match.group(1) + first_word
+                words[0] = complete_word
+                return " ".join(words)
+
+        # Fallback: search without context (first occurrence)
+        # Pattern: any word ending with our partial word
+        pattern = r'(\w+)' + re.escape(first_word) + r'(?:[\s.,;:!?\)]|$)'
+        match = re.search(pattern, html_text, re.UNICODE)
+
+        if match:
+            complete_word = match.group(1) + first_word
+            words[0] = complete_word
+            return " ".join(words)
+
+        # Return snippet as-is if no completion found
+        return snippet
 
     def _complete_partial_word(self, snippet: str, html_text: str) -> str:
         """Complete partial word at end of snippet by finding full word in HTML.
@@ -469,6 +626,11 @@ class PDFExtractor:
 
         # Join text
         text = " ".join(s["text"] for s in body_spans)
+
+        # Clean up spacing around punctuation (caused by filtered footnote numbers)
+        # " ." -> "." and " ," -> "," etc.
+        text = re.sub(r'\s+([.,;:!?·])', r'\1', text)
+
         return text
 
     def extract_with_pymupdf(self) -> List[Dict[str, Any]]:
@@ -521,7 +683,7 @@ class PDFExtractor:
     def _extract_snippet_with_context(
         self, current_text: str, next_text: str, page_num: int
     ) -> Dict[str, Any]:
-        """Extract snippet from current page only (simpler, more reliable).
+        """Extract snippet from current page with optional context for disambiguation.
 
         Args:
             current_text: Text from current page
@@ -529,34 +691,73 @@ class PDFExtractor:
             page_num: Page number
 
         Returns:
-            Dictionary with page number and snippet
+            Dictionary with page number, snippet, and optional context_before/context_after
         """
         current_words = current_text.split()
 
         if len(current_words) < self.min_words:
             self.stats["insufficient_text"] += 1
+            placeholder = (
+                "PASTE_TEXT_FROM_BEGINNING_OF_PAGE_HERE"
+                if self.strategy == "beginning_of_page"
+                else "PASTE_TEXT_FROM_END_OF_PAGE_HERE"
+            )
             return {
                 "page": page_num,
-                "snippet": "PASTE_TEXT_FROM_END_OF_PAGE_HERE",
+                "snippet": placeholder,
                 "note": f"Insufficient text (found {len(current_words)} words)",
             }
 
-        # Get words from end of current page
-        snippet = " ".join(current_words[-self.snippet_words:])
+        # Get words based on strategy
+        if self.strategy == "beginning_of_page":
+            snippet = " ".join(current_words[:self.snippet_words])
+        else:
+            # end_of_page (default) and bottom_visual
+            snippet = " ".join(current_words[-self.snippet_words:])
 
-        # Trim to natural boundary (period, semicolon) if possible
-        snippet = self._trim_to_boundary(snippet)
+        # Store original snippet before cleaning for context extraction
+        original_snippet = snippet
 
-        # Try to complete partial words using HTML if available
-        if self.html_text:
-            snippet = self._clean_snippet(snippet, self.html_text)
+        # Trim to natural boundary and complete partial words based on strategy
+        if self.strategy == "beginning_of_page":
+            snippet = self._trim_to_start_boundary(snippet)
+            if self.html_text:
+                snippet = self._clean_snippet_beginning(snippet, self.html_text)
+        else:
+            snippet = self._trim_to_boundary(snippet)
+            if self.html_text:
+                snippet = self._clean_snippet(snippet, self.html_text)
 
         self.stats["successful"] += 1
 
-        return {
+        result: Dict[str, Any] = {
             "page": page_num,
             "snippet": snippet,
         }
+
+        # Extract context for disambiguation if enabled
+        if self.context_words > 0:
+            # Use the original snippet (before HTML correction) to find position in page text
+            context_before, context_after = self._extract_context(
+                current_text, original_snippet, self.context_words
+            )
+
+            # Only include context fields if at least one has content
+            if context_before or context_after:
+                result["context_before"] = context_before
+                result["context_after"] = context_after
+
+                # Track stats
+                if context_before and context_after:
+                    self.stats["context_extracted"] += 1
+                else:
+                    self.stats["context_partial"] += 1
+            else:
+                # Context extraction failed - snippet not found in original page text
+                # This can happen if the snippet was modified during cleaning/correction
+                self.stats["context_failed"] = self.stats.get("context_failed", 0) + 1
+
+        return result
 
     def _extract_page_snippet_pymupdf(
         self, page: "fitz.Page", page_num: int
@@ -636,11 +837,19 @@ class PDFExtractor:
                 "snippet": snippet.strip(),
             }
 
+        except (KeyboardInterrupt, SystemExit, MemoryError):
+            # Don't suppress critical system exceptions
+            raise
         except Exception as e:
             self.stats["failed"] += 1
+            placeholder = (
+                "PASTE_TEXT_FROM_BEGINNING_OF_PAGE_HERE"
+                if self.strategy == "beginning_of_page"
+                else "PASTE_TEXT_FROM_END_OF_PAGE_HERE"
+            )
             return {
                 "page": page_num,
-                "snippet": "PASTE_TEXT_FROM_END_OF_PAGE_HERE",
+                "snippet": placeholder,
                 "note": f"Extraction failed: {str(e)}",
             }
 
@@ -695,7 +904,7 @@ class PDFExtractor:
                     bottom_words.sort(key=lambda w: (w["top"], w["x0"]))
 
                     text = " ".join(w["text"] for w in bottom_words)
-            else:  # end_of_page
+            else:  # end_of_page or beginning_of_page
                 text = page.extract_text() or ""
 
             # Filter out production metadata (InDesign sluglines, etc.)
@@ -709,19 +918,30 @@ class PDFExtractor:
 
             if len(words) < self.min_words:
                 self.stats["insufficient_text"] += 1
+                placeholder = (
+                    "PASTE_TEXT_FROM_BEGINNING_OF_PAGE_HERE"
+                    if self.strategy == "beginning_of_page"
+                    else "PASTE_TEXT_FROM_END_OF_PAGE_HERE"
+                )
                 return {
                     "page": page_num,
-                    "snippet": "PASTE_TEXT_FROM_END_OF_PAGE_HERE",
+                    "snippet": placeholder,
                     "note": f"Insufficient text (found {len(words)} words, need {self.min_words})",
                 }
 
-            snippet = " ".join(words[-self.snippet_words :])
+            # Select words based on strategy
+            if self.strategy == "beginning_of_page":
+                snippet = " ".join(words[:self.snippet_words])
+            else:
+                snippet = " ".join(words[-self.snippet_words:])
 
-            # Trim to natural boundary (period, semicolon) if possible
-            snippet = self._trim_to_boundary(snippet)
-
-            # Clean up trailing incomplete words and complete partial words from HTML
-            snippet = self._clean_snippet(snippet, self.html_text)
+            # Trim to natural boundary and clean based on strategy
+            if self.strategy == "beginning_of_page":
+                snippet = self._trim_to_start_boundary(snippet)
+                snippet = self._clean_snippet_beginning(snippet, self.html_text)
+            else:
+                snippet = self._trim_to_boundary(snippet)
+                snippet = self._clean_snippet(snippet, self.html_text)
 
             # Apply HTML matching if available (highest priority)
             if self.html_matcher:
@@ -754,11 +974,19 @@ class PDFExtractor:
                 "snippet": snippet.strip(),
             }
 
+        except (KeyboardInterrupt, SystemExit, MemoryError):
+            # Don't suppress critical system exceptions
+            raise
         except Exception as e:
             self.stats["failed"] += 1
+            placeholder = (
+                "PASTE_TEXT_FROM_BEGINNING_OF_PAGE_HERE"
+                if self.strategy == "beginning_of_page"
+                else "PASTE_TEXT_FROM_END_OF_PAGE_HERE"
+            )
             return {
                 "page": page_num,
-                "snippet": "PASTE_TEXT_FROM_END_OF_PAGE_HERE",
+                "snippet": placeholder,
                 "note": f"Extraction failed: {str(e)}",
             }
 
@@ -816,6 +1044,16 @@ class PDFExtractor:
         print(f"Insufficient text:   {self.stats['insufficient_text']}")
         print(f"Failed:              {self.stats['failed']}")
 
+        # Show context extraction stats if context was enabled
+        context_failed = self.stats.get("context_failed", 0)
+        context_total = self.stats["context_extracted"] + self.stats["context_partial"]
+        if context_total > 0 or context_failed > 0 or self.context_words > 0:
+            print(f"\nContext extraction ({self.context_words} words):")
+            print(f"  Full context:      {self.stats['context_extracted']}")
+            print(f"  Partial context:   {self.stats['context_partial']}")
+            if context_failed > 0:
+                print(f"  Failed:            {context_failed} ⚠")
+
         if self.stats["insufficient_text"] > 0 or self.stats["failed"] > 0:
             print("\n⚠ Some pages need manual snippet entry.")
             print("  Look for entries with 'PASTE_TEXT_FROM_END_OF_PAGE_HERE'")
@@ -860,11 +1098,26 @@ def validate_snippets(
         1 for s in snippets if s.get("snippet") == "PASTE_TEXT_FROM_END_OF_PAGE_HERE"
     )
 
+    # Count context coverage
+    context_full = sum(
+        1 for s in snippets
+        if s.get("context_before") and s.get("context_after")
+    )
+    context_partial = sum(
+        1 for s in snippets
+        if (s.get("context_before") or s.get("context_after"))
+        and not (s.get("context_before") and s.get("context_after"))
+    )
+    context_none = len(snippets) - context_full - context_partial
+
     results = {
         "total_snippets": len(snippets),
         "unique_snippets": len(set(snippet_texts)),
         "duplicate_snippets": duplicates,
         "placeholder_count": placeholders,
+        "context_full": context_full,
+        "context_partial": context_partial,
+        "context_none": context_none,
     }
 
     # Check against HTML if provided
@@ -909,8 +1162,17 @@ def print_validation_results(results: Dict[str, Any]) -> None:
     print(f"Unique snippets:     {results['unique_snippets']}")
     print(f"Needs manual entry:  {results['placeholder_count']}")
 
+    # Show context coverage if present
+    if results.get("context_full", 0) > 0 or results.get("context_partial", 0) > 0:
+        print(f"\nContext coverage:")
+        print(f"  Full context:      {results['context_full']}")
+        print(f"  Partial context:   {results['context_partial']}")
+        print(f"  No context:        {results['context_none']}")
+
     if results["duplicate_snippets"]:
         print(f"\n⚠ Duplicate snippets found: {len(results['duplicate_snippets'])}")
+        if results.get("context_full", 0) > 0:
+            print("  Context matching will help disambiguate these duplicates.")
         print("  These may cause incorrect page marker placement:")
         for snippet, count in list(results["duplicate_snippets"].items())[:5]:
             print(f'  • "{snippet[:60]}..." (appears {count} times)')

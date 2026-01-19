@@ -487,3 +487,131 @@ class TestContextCorrection:
 
         assert was_corrected
         assert "απόφαση του δικαστηρίου" in result
+
+
+class TestContextExtraction:
+    """Test context extraction for snippet disambiguation."""
+
+    def test_extract_context_basic(self):
+        """Test basic context extraction from page text."""
+        extractor = PDFExtractor("test.pdf")
+        page_text = "word1 word2 word3 word4 snippet text here word5 word6 word7 word8"
+        snippet = "snippet text here"
+
+        context_before, context_after = extractor._extract_context(
+            page_text, snippet, num_words=4
+        )
+
+        assert context_before == "word1 word2 word3 word4"
+        assert context_after == "word5 word6 word7 word8"
+
+    def test_extract_context_fewer_words_before(self):
+        """Test context extraction when fewer words available before snippet."""
+        extractor = PDFExtractor("test.pdf")
+        page_text = "word1 word2 snippet text here word5 word6 word7 word8"
+        snippet = "snippet text here"
+
+        context_before, context_after = extractor._extract_context(
+            page_text, snippet, num_words=4
+        )
+
+        assert context_before == "word1 word2"
+        assert context_after == "word5 word6 word7 word8"
+
+    def test_extract_context_fewer_words_after(self):
+        """Test context extraction when fewer words available after snippet."""
+        extractor = PDFExtractor("test.pdf")
+        page_text = "word1 word2 word3 word4 snippet text here word5 word6"
+        snippet = "snippet text here"
+
+        context_before, context_after = extractor._extract_context(
+            page_text, snippet, num_words=4
+        )
+
+        assert context_before == "word1 word2 word3 word4"
+        assert context_after == "word5 word6"
+
+    def test_extract_context_no_context_before(self):
+        """Test context extraction when snippet is at start."""
+        extractor = PDFExtractor("test.pdf")
+        page_text = "snippet text here word1 word2 word3 word4"
+        snippet = "snippet text here"
+
+        context_before, context_after = extractor._extract_context(
+            page_text, snippet, num_words=4
+        )
+
+        assert context_before == ""
+        assert context_after == "word1 word2 word3 word4"
+
+    def test_extract_context_no_context_after(self):
+        """Test context extraction when snippet is at end."""
+        extractor = PDFExtractor("test.pdf")
+        page_text = "word1 word2 word3 word4 snippet text here"
+        snippet = "snippet text here"
+
+        context_before, context_after = extractor._extract_context(
+            page_text, snippet, num_words=4
+        )
+
+        assert context_before == "word1 word2 word3 word4"
+        assert context_after == ""
+
+    def test_extract_context_snippet_not_found(self):
+        """Test context extraction when snippet not in page text."""
+        extractor = PDFExtractor("test.pdf")
+        page_text = "completely different text"
+        snippet = "snippet text here"
+
+        context_before, context_after = extractor._extract_context(
+            page_text, snippet, num_words=4
+        )
+
+        assert context_before == ""
+        assert context_after == ""
+
+    def test_extract_context_disabled(self):
+        """Test context extraction with num_words=0."""
+        extractor = PDFExtractor("test.pdf")
+        page_text = "word1 word2 snippet text here word5 word6"
+        snippet = "snippet text here"
+
+        context_before, context_after = extractor._extract_context(
+            page_text, snippet, num_words=0
+        )
+
+        assert context_before == ""
+        assert context_after == ""
+
+    def test_extract_context_greek_text(self):
+        """Test context extraction with Greek text."""
+        extractor = PDFExtractor("test.pdf")
+        page_text = "η απόφαση του δικαστηρίου είναι τελεσίδικη και οριστική"
+        snippet = "είναι τελεσίδικη"
+
+        context_before, context_after = extractor._extract_context(
+            page_text, snippet, num_words=4
+        )
+
+        assert context_before == "η απόφαση του δικαστηρίου"
+        assert context_after == "και οριστική"
+
+    def test_context_words_parameter(self):
+        """Test that context_words parameter is stored correctly."""
+        extractor = PDFExtractor("test.pdf", context_words=6)
+        assert extractor.context_words == 6
+
+        extractor_disabled = PDFExtractor("test.pdf", context_words=0)
+        assert extractor_disabled.context_words == 0
+
+
+class TestContextStatsTracking:
+    """Test context extraction statistics tracking."""
+
+    def test_context_stats_initialized(self):
+        """Test that context stats are initialized in stats dict."""
+        extractor = PDFExtractor("test.pdf")
+        assert "context_extracted" in extractor.stats
+        assert "context_partial" in extractor.stats
+        assert extractor.stats["context_extracted"] == 0
+        assert extractor.stats["context_partial"] == 0
