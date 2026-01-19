@@ -431,6 +431,7 @@
                 <li><strong>Load</strong> your marked HTML file using the button above</li>
                 <li><strong>Drag</strong> any red page marker badge to move it</li>
                 <li><strong>Drop</strong> it between words where the page break should be</li>
+                <li><strong>Double-click</strong> a marker to edit or delete it</li>
                 <li><strong>Add</strong> missing markers: click "+ Add Marker", then click a word</li>
                 <li><strong>Download</strong> the corrected HTML when done</li>
             </ol>
@@ -658,14 +659,76 @@
         // ============================================================
 
         /**
-         * Attach mousedown listeners to all markers in the editor
+         * Attach event listeners to all markers in the editor
          * Called after loading content or restoring from history
          */
         function setupMarkerDragging() {
             const markers = editor.querySelectorAll('.page-marker');
             markers.forEach(function(marker) {
                 marker.addEventListener('mousedown', startDrag);
+                marker.addEventListener('dblclick', editMarker);
             });
+        }
+
+        /**
+         * Handle double-click on a marker to edit or delete it
+         *
+         * @param {MouseEvent} e - The dblclick event on a marker
+         */
+        function editMarker(e) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const marker = e.target;
+            const currentPage = marker.getAttribute('data-page');
+
+            // Prompt with current value; hint that empty = delete
+            const newPage = prompt(
+                'Edit page number (leave empty to delete):',
+                currentPage
+            );
+
+            // User cancelled
+            if (newPage === null) return;
+
+            const trimmedPage = newPage.trim();
+
+            if (trimmedPage === '') {
+                // Delete the marker
+                deleteMarker(marker);
+            } else if (trimmedPage !== currentPage) {
+                // Update the marker
+                updateMarkerNumber(marker, trimmedPage);
+            }
+            // If same value, do nothing
+        }
+
+        /**
+         * Update a marker's page number
+         *
+         * @param {HTMLElement} marker - The marker to update
+         * @param {string} newPage - The new page number
+         */
+        function updateMarkerNumber(marker, newPage) {
+            const oldPage = marker.getAttribute('data-page');
+            marker.setAttribute('data-page', newPage);
+            marker.textContent = newPage;
+
+            saveState();
+            showToast('Updated marker ' + oldPage + ' → ' + newPage, 'success');
+        }
+
+        /**
+         * Delete a marker from the document
+         *
+         * @param {HTMLElement} marker - The marker to delete
+         */
+        function deleteMarker(marker) {
+            const pageNum = marker.getAttribute('data-page');
+            marker.remove();
+
+            saveState();
+            showToast('Deleted marker ' + pageNum, 'success');
         }
 
         /**
@@ -904,6 +967,7 @@
 
             // Attach drag handler to the new marker
             newMarker.addEventListener('mousedown', startDrag);
+            newMarker.addEventListener('dblclick', editMarker);
 
             // Save state for undo and notify user
             saveState();
@@ -1261,6 +1325,7 @@
 
             // Attach drag handler
             newMarker.addEventListener('mousedown', startDrag);
+            newMarker.addEventListener('dblclick', editMarker);
 
             // Clear highlight reference
             highlightedWord = null;

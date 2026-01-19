@@ -139,6 +139,9 @@ These markers enable EPUB page-list navigation, citation compatibility with prin
     - Word-boundary only insertion (prevents breaking words)
     - Suggests next sequential page number
     - Press Escape to exit add mode
+  - **Edit/delete markers**: Double-click any marker to change its number or delete it
+    - Enter new number to update
+    - Leave empty and confirm to delete
   - Visual drop indicator shows insertion point
   - Undo/Redo support (Ctrl+Z / Ctrl+Y)
   - Zoom controls for detailed positioning
