@@ -313,6 +313,42 @@
             cursor: not-allowed;
         }
 
+        /* ==================== ADD MODE ==================== */
+        /*
+         * Toggle button for adding new markers
+         * - Orange when active to indicate mode change
+         * - Editor shows word highlights on hover when active
+         */
+        .btn-add {
+            background: #e67e22;
+            color: white;
+        }
+
+        .btn-add:hover {
+            background: #d35400;
+        }
+
+        .btn-add.active {
+            background: #c0392b;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        /* Word highlight when hovering in add mode */
+        .word-highlight {
+            background: rgba(46, 204, 113, 0.3);
+            border-radius: 2px;
+            outline: 2px solid #27ae60;
+        }
+
+        /* Cursor changes in add mode */
+        .editor.add-mode {
+            cursor: crosshair;
+        }
+
+        .editor.add-mode .page-marker {
+            cursor: not-allowed;
+        }
+
         /* ==================== TOAST NOTIFICATIONS ==================== */
         /*
          * Temporary notifications that slide up from bottom-right
@@ -370,6 +406,8 @@
             <span>Load HTML File</span>
         </label>
 
+        <button id="addModeBtn" class="btn-add" disabled title="Add new page marker">+ Add Marker</button>
+
         <div class="history-controls">
             <button id="undoBtn" class="btn-secondary" disabled title="Undo (Ctrl+Z)">Undo</button>
             <button id="redoBtn" class="btn-secondary" disabled title="Redo (Ctrl+Y)">Redo</button>
@@ -393,6 +431,7 @@
                 <li><strong>Load</strong> your marked HTML file using the button above</li>
                 <li><strong>Drag</strong> any red page marker badge to move it</li>
                 <li><strong>Drop</strong> it between words where the page break should be</li>
+                <li><strong>Add</strong> missing markers: click "+ Add Marker", then click a word</li>
                 <li><strong>Download</strong> the corrected HTML when done</li>
             </ol>
 
@@ -472,6 +511,12 @@
         /** @type {number} Current zoom level as percentage (50-200) */
         let zoom = 100;
 
+        /** @type {boolean} Whether add mode is active (for adding new markers) */
+        let addMode = false;
+
+        /** @type {HTMLElement|null} Currently highlighted word element in add mode */
+        let highlightedWord = null;
+
         /** @type {HTMLElement|null} The marker element currently being dragged */
         let draggedMarker = null;
 
@@ -490,6 +535,7 @@
         const fileInput = document.getElementById('fileInput');
         const editor = document.getElementById('editor');
         const downloadBtn = document.getElementById('downloadBtn');
+        const addModeBtn = document.getElementById('addModeBtn');
         const undoBtn = document.getElementById('undoBtn');
         const redoBtn = document.getElementById('redoBtn');
         const zoomInBtn = document.getElementById('zoomIn');
@@ -591,6 +637,7 @@
             setupMarkerDragging();
 
             downloadBtn.disabled = false;
+            addModeBtn.disabled = false;
         }
 
         // ============================================================
@@ -998,6 +1045,240 @@
         // Zoom button event listeners
         zoomInBtn.addEventListener('click', function() { setZoom(zoom + 10); });
         zoomOutBtn.addEventListener('click', function() { setZoom(zoom - 10); });
+
+        // ============================================================
+        // ADD MODE SYSTEM
+        // ============================================================
+        //
+        // Add mode allows users to insert new page markers by clicking on words.
+        // The marker is inserted AFTER the clicked word (word-boundary only).
+        //
+        // Flow:
+        // 1. Click "+ Add Marker" button → toggles add mode
+        // 2. Hover over text → highlights the word under cursor
+        // 3. Click word → prompt for page number → insert marker after word
+        // 4. Click button again or press Escape → exit add mode
+        // ============================================================
+
+        /**
+         * Toggle add mode on/off
+         */
+        function toggleAddMode() {
+            addMode = !addMode;
+            addModeBtn.classList.toggle('active', addMode);
+            editor.classList.toggle('add-mode', addMode);
+
+            if (addMode) {
+                // Attach add mode event listeners
+                editor.addEventListener('mousemove', onAddModeHover);
+                editor.addEventListener('click', onAddModeClick);
+                editor.addEventListener('mouseleave', clearWordHighlight);
+                showToast('Click on a word to add marker after it', 'success');
+            } else {
+                // Remove add mode event listeners
+                editor.removeEventListener('mousemove', onAddModeHover);
+                editor.removeEventListener('click', onAddModeClick);
+                editor.removeEventListener('mouseleave', clearWordHighlight);
+                clearWordHighlight();
+            }
+        }
+
+        /**
+         * Clear the current word highlight
+         */
+        function clearWordHighlight() {
+            if (highlightedWord) {
+                highlightedWord.classList.remove('word-highlight');
+                highlightedWord = null;
+            }
+        }
+
+        /**
+         * Find word boundaries at a text position
+         * Returns the start and end offsets of the word containing the given offset
+         *
+         * @param {string} text - The full text content
+         * @param {number} offset - Character offset within the text
+         * @returns {{start: number, end: number}} Word boundary offsets
+         */
+        function findWordBoundaries(text, offset) {
+            // Find start of word (scan backwards)
+            let start = offset;
+            while (start > 0 && !/\s/.test(text[start - 1])) {
+                start--;
+            }
+
+            // Find end of word (scan forwards)
+            let end = offset;
+            while (end < text.length && !/\s/.test(text[end])) {
+                end++;
+            }
+
+            return { start, end };
+        }
+
+        /**
+         * Handle mouse movement in add mode
+         * Highlights the word under the cursor
+         *
+         * @param {MouseEvent} e - The mousemove event
+         */
+        function onAddModeHover(e) {
+            if (!addMode) return;
+
+            // Get caret position under cursor
+            const pos = getCaretPosition(e.clientX, e.clientY);
+
+            if (!pos || pos.node.nodeType !== Node.TEXT_NODE) {
+                clearWordHighlight();
+                return;
+            }
+
+            // Check if we're inside a marker (don't highlight)
+            let node = pos.node;
+            while (node && node !== editor) {
+                if (node.classList && node.classList.contains('page-marker')) {
+                    clearWordHighlight();
+                    return;
+                }
+                node = node.parentNode;
+            }
+
+            const textNode = pos.node;
+            const text = textNode.textContent;
+            const boundaries = findWordBoundaries(text, pos.offset);
+
+            // No word found (clicked on whitespace)
+            if (boundaries.start === boundaries.end) {
+                clearWordHighlight();
+                return;
+            }
+
+            // Create a range for the word to highlight
+            const range = document.createRange();
+            range.setStart(textNode, boundaries.start);
+            range.setEnd(textNode, boundaries.end);
+
+            // Wrap word in a highlight span (temporarily)
+            // First clear any existing highlight
+            clearWordHighlight();
+
+            // Create highlight wrapper
+            const wrapper = document.createElement('span');
+            wrapper.className = 'word-highlight';
+            wrapper.dataset.wordStart = boundaries.start;
+            wrapper.dataset.wordEnd = boundaries.end;
+
+            try {
+                range.surroundContents(wrapper);
+                highlightedWord = wrapper;
+            } catch (e) {
+                // surroundContents can fail if range crosses element boundaries
+                // In this case, just don't highlight
+            }
+        }
+
+        /**
+         * Handle click in add mode
+         * Inserts a new marker after the clicked word
+         *
+         * @param {MouseEvent} e - The click event
+         */
+        function onAddModeClick(e) {
+            if (!addMode || !highlightedWord) return;
+
+            // Don't add if clicking on an existing marker
+            if (e.target.classList && e.target.classList.contains('page-marker')) {
+                showToast('Cannot add marker inside another marker', 'error');
+                return;
+            }
+
+            // Get suggested page number (highest existing + 1)
+            const suggestedPage = getNextPageNumber();
+
+            // Prompt for page number
+            const pageNum = prompt('Enter page number:', suggestedPage);
+
+            if (pageNum === null || pageNum.trim() === '') {
+                // User cancelled
+                return;
+            }
+
+            // Insert marker after the highlighted word
+            insertMarkerAfterWord(highlightedWord, pageNum.trim());
+
+            // Exit add mode after successful insertion
+            toggleAddMode();
+        }
+
+        /**
+         * Get the next suggested page number
+         * Returns the highest existing page number + 1
+         *
+         * @returns {string} Suggested page number
+         */
+        function getNextPageNumber() {
+            const markers = editor.querySelectorAll('.page-marker');
+            let maxPage = 0;
+
+            markers.forEach(function(marker) {
+                const num = parseInt(marker.getAttribute('data-page'), 10);
+                if (!isNaN(num) && num > maxPage) {
+                    maxPage = num;
+                }
+            });
+
+            return String(maxPage + 1);
+        }
+
+        /**
+         * Insert a new marker after a word element
+         *
+         * @param {HTMLElement} wordWrapper - The highlighted word span
+         * @param {string} pageNum - The page number for the new marker
+         */
+        function insertMarkerAfterWord(wordWrapper, pageNum) {
+            // Generate unique marker ID
+            const markerId = 'marker-' + Date.now();
+
+            // Create new marker element
+            const newMarker = document.createElement('span');
+            newMarker.className = 'page-marker';
+            newMarker.setAttribute('data-page', pageNum);
+            newMarker.setAttribute('data-id', markerId);
+            newMarker.setAttribute('draggable', 'true');
+            newMarker.textContent = pageNum;
+
+            // Get the text content from the wrapper
+            const wordText = wordWrapper.textContent;
+            const parent = wordWrapper.parentNode;
+
+            // Replace wrapper with: text + marker
+            const textNode = document.createTextNode(wordText);
+            parent.insertBefore(textNode, wordWrapper);
+            parent.insertBefore(newMarker, wordWrapper);
+            parent.removeChild(wordWrapper);
+
+            // Attach drag handler
+            newMarker.addEventListener('mousedown', startDrag);
+
+            // Clear highlight reference
+            highlightedWord = null;
+
+            // Save state for undo
+            saveState();
+            showToast('Added marker for page ' + pageNum, 'success');
+        }
+
+        // Add mode button click handler
+        addModeBtn.addEventListener('click', toggleAddMode);
+
+        // Escape key exits add mode
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && addMode) {
+                toggleAddMode();
+            }
+        });
 
         // ============================================================
         // EVENT LISTENERS

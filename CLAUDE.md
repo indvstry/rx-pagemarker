@@ -135,6 +135,10 @@ These markers enable EPUB page-list navigation, citation compatibility with prin
   - Load any marked HTML file via file picker
   - Page markers appear as red draggable badges
   - Drag markers to correct positions between words
+  - **Add new markers**: Click "+ Add Marker", then click any word to insert marker after it
+    - Word-boundary only insertion (prevents breaking words)
+    - Suggests next sequential page number
+    - Press Escape to exit add mode
   - Visual drop indicator shows insertion point
   - Undo/Redo support (Ctrl+Z / Ctrl+Y)
   - Zoom controls for detailed positioning
@@ -144,7 +148,8 @@ These markers enable EPUB page-list navigation, citation compatibility with prin
   1. Open `tools/page-marker-editor.html` in any browser
   2. Click "Load HTML File" and select your marked HTML
   3. Drag red markers to correct positions
-  4. Click "Download Corrected HTML"
+  4. To add missing markers: click "+ Add Marker", click a word, enter page number
+  5. Click "Download Corrected HTML"
 - **Sample file**: `examples/sample_with_markers.html` for testing
 - **Known limitation**: The download uses XMLSerializer which reformats HTML:
   - Adds `<!DOCTYPE html>` declaration
