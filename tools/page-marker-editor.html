@@ -679,8 +679,23 @@
             e.preventDefault();
             e.stopPropagation();
 
-            const marker = e.target;
+            // Ensure we have the marker element (handle event bubbling)
+            let marker = e.target;
+            while (marker && !marker.classList.contains('page-marker')) {
+                marker = marker.parentElement;
+            }
+
+            if (!marker) {
+                console.error('[Edit] Double-click event target is not a marker');
+                return;
+            }
+
             const currentPage = marker.getAttribute('data-page');
+            if (currentPage === null) {
+                console.warn('[Edit] Marker missing data-page attribute');
+                showToast('Marker is corrupted - cannot edit', 'error');
+                return;
+            }
 
             // Prompt with current value; hint that empty = delete
             const newPage = prompt(
@@ -710,7 +725,13 @@
          * @param {string} newPage - The new page number
          */
         function updateMarkerNumber(marker, newPage) {
-            const oldPage = marker.getAttribute('data-page');
+            if (!marker || !marker.isConnected) {
+                console.error('[Edit] Cannot update marker - element invalid or detached');
+                showToast('Failed to update marker', 'error');
+                return;
+            }
+
+            const oldPage = marker.getAttribute('data-page') || '?';
             marker.setAttribute('data-page', newPage);
             marker.textContent = newPage;
 
@@ -724,7 +745,20 @@
          * @param {HTMLElement} marker - The marker to delete
          */
         function deleteMarker(marker) {
-            const pageNum = marker.getAttribute('data-page');
+            if (!marker) {
+                console.error('[Edit] Cannot delete marker - element is null');
+                showToast('Failed to delete marker', 'error');
+                return;
+            }
+
+            const pageNum = marker.getAttribute('data-page') || '?';
+
+            if (!marker.isConnected) {
+                console.warn('[Edit] Marker already removed from DOM');
+                showToast('Marker already deleted', 'success');
+                return;
+            }
+
             marker.remove();
 
             saveState();
@@ -1152,7 +1186,10 @@
          */
         function clearWordHighlight() {
             if (highlightedWord) {
-                highlightedWord.classList.remove('word-highlight');
+                // Verify element is still in DOM before modifying
+                if (highlightedWord.isConnected) {
+                    highlightedWord.classList.remove('word-highlight');
+                }
                 highlightedWord = null;
             }
         }
@@ -1236,9 +1273,11 @@
             try {
                 range.surroundContents(wrapper);
                 highlightedWord = wrapper;
-            } catch (e) {
+            } catch (err) {
                 // surroundContents can fail if range crosses element boundaries
-                // In this case, just don't highlight
+                // This is expected for text spanning multiple inline elements
+                console.warn('[Add Mode] Could not highlight word:', err.message);
+                highlightedWord = null;
             }
         }
 
@@ -1249,11 +1288,17 @@
          * @param {MouseEvent} e - The click event
          */
         function onAddModeClick(e) {
-            if (!addMode || !highlightedWord) return;
+            if (!addMode) return;
 
             // Don't add if clicking on an existing marker
             if (e.target.classList && e.target.classList.contains('page-marker')) {
                 showToast('Cannot add marker inside another marker', 'error');
+                return;
+            }
+
+            // Give feedback if no word is highlighted (clicked on whitespace)
+            if (!highlightedWord) {
+                showToast('Click on a word to add marker', 'error');
                 return;
             }
 
@@ -1302,6 +1347,20 @@
          * @param {string} pageNum - The page number for the new marker
          */
         function insertMarkerAfterWord(wordWrapper, pageNum) {
+            // Validate inputs
+            if (!wordWrapper) {
+                console.error('[Add Mode] insertMarkerAfterWord called with null wrapper');
+                showToast('Failed to add marker - please try again', 'error');
+                return;
+            }
+
+            const parent = wordWrapper.parentNode;
+            if (!parent) {
+                console.error('[Add Mode] Word wrapper has no parent - may have been removed');
+                showToast('Failed to add marker - please try again', 'error');
+                return;
+            }
+
             // Generate unique marker ID
             const markerId = 'marker-' + Date.now();
 
@@ -1315,13 +1374,18 @@
 
             // Get the text content from the wrapper
             const wordText = wordWrapper.textContent;
-            const parent = wordWrapper.parentNode;
 
-            // Replace wrapper with: text + marker
-            const textNode = document.createTextNode(wordText);
-            parent.insertBefore(textNode, wordWrapper);
-            parent.insertBefore(newMarker, wordWrapper);
-            parent.removeChild(wordWrapper);
+            try {
+                // Replace wrapper with: text + marker
+                const textNode = document.createTextNode(wordText);
+                parent.insertBefore(textNode, wordWrapper);
+                parent.insertBefore(newMarker, wordWrapper);
+                parent.removeChild(wordWrapper);
+            } catch (err) {
+                console.error('[Add Mode] Failed to insert marker:', err);
+                showToast('Failed to add marker - DOM error', 'error');
+                return;
+            }
 
             // Attach drag handler
             newMarker.addEventListener('mousedown', startDrag);
