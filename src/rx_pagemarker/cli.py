@@ -211,6 +211,12 @@ def generate(num_pages: int, output_file: Path, start_page: int, roman: bool) ->
     default=4,
     help="Number of context words to capture before/after snippet for disambiguation (default: 4, 0 to disable)",
 )
+@click.option(
+    "--two-column",
+    is_flag=True,
+    default=False,
+    help="Enable two-column layout extraction (skips footnote zone, extracts from body columns only)",
+)
 def extract(
     pdf_file: Path,
     output_json: Path,
@@ -231,6 +237,7 @@ def extract(
     include_footnotes: bool,
     min_font_size: float,
     context_words: int,
+    two_column: bool,
 ) -> None:
     """Extract text snippets from PDF file for page marker generation.
 
@@ -277,6 +284,9 @@ def extract(
 
       # Include footnotes (normally skipped)
       rx-pagemarker extract book.pdf snippets.json book.html --include-footnotes
+
+      # Two-column layout (extracts from body columns, skips footnote zone)
+      rx-pagemarker extract magazine.pdf snippets.json mag.html --two-column
     """
     # Validate HTML file requirement
     if not raw_pdf and html_file is None:
@@ -318,6 +328,7 @@ def extract(
             min_font_size=min_font_size,
             complete_words_html_path=html_file if (not fuzzy_match and not raw_pdf) else None,
             context_words=context_words,
+            two_column=two_column,
         )
 
         # Extract snippets

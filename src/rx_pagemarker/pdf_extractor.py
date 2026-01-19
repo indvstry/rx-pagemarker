@@ -84,6 +84,7 @@ class PDFExtractor:
         min_font_size: float = 8.5,
         complete_words_html_path: Optional[Union[str, Path]] = None,
         context_words: int = 4,
+        two_column: bool = False,
     ) -> None:
         """Initialize PDF extractor.
 
@@ -109,6 +110,9 @@ class PDFExtractor:
                 (fast - completes partial words at end of snippets using HTML reference)
             context_words: Number of words to capture before/after snippet for disambiguation
                 (default: 4, set to 0 to disable context extraction)
+            two_column: Enable two-column layout extraction. When True, extracts text only
+                from the body columns area (top ~75% of page), skipping the footnote zone
+                at the bottom. Text is extracted from the end of the rightmost column.
 
         Raises:
             InvalidParameterError: If snippet_words or min_words are invalid
@@ -136,6 +140,7 @@ class PDFExtractor:
         self.skip_footnotes = skip_footnotes
         self.min_font_size = min_font_size
         self.context_words = context_words
+        self.two_column = two_column
 
         # Build list of exclude patterns
         self.exclude_patterns: List[re.Pattern[str]] = []
@@ -633,6 +638,71 @@ class PDFExtractor:
 
         return text
 
+    def _extract_two_column_body_pymupdf(
+        self, page: "fitz.Page", footnote_zone_ratio: float = 0.25
+    ) -> str:
+        """Extract body text from two-column layout, excluding footnote zone.
+
+        For two-column PDFs, the footnote zone is at the very bottom of the page
+        spanning both columns. This method extracts text only from the body area
+        above the footnotes, sorted by reading order (top-to-bottom, left-to-right
+        within each column).
+
+        Args:
+            page: PyMuPDF page object
+            footnote_zone_ratio: Fraction of page height to consider as footnote zone
+                (default: 0.25 = bottom 25%)
+
+        Returns:
+            Body text with footnotes excluded, in reading order
+        """
+        page_height = page.rect.height
+        page_width = page.rect.width
+        footnote_cutoff_y = page_height * (1 - footnote_zone_ratio)
+
+        # Get detailed text with position information
+        blocks = page.get_text("dict")["blocks"]
+
+        body_spans = []
+        for block in blocks:
+            if "lines" not in block:
+                continue
+            for line in block["lines"]:
+                for span in line["spans"]:
+                    bbox = span["bbox"]  # (x0, y0, x1, y1)
+                    y_bottom = bbox[3]
+                    x_center = (bbox[0] + bbox[2]) / 2
+
+                    # Skip spans in the footnote zone (bottom of page)
+                    if y_bottom > footnote_cutoff_y:
+                        continue
+
+                    # Also filter by font size if skip_footnotes is enabled
+                    if self.skip_footnotes and span["size"] < self.min_font_size:
+                        continue
+
+                    # Determine column (left or right)
+                    column = 0 if x_center < page_width / 2 else 1
+
+                    body_spans.append({
+                        "y": y_bottom,
+                        "x": bbox[0],
+                        "column": column,
+                        "text": span["text"]
+                    })
+
+        # Sort by reading order: column first, then y position, then x position
+        # This gives us left column top-to-bottom, then right column top-to-bottom
+        body_spans.sort(key=lambda s: (s["column"], s["y"], s["x"]))
+
+        # Join text
+        text = " ".join(s["text"] for s in body_spans)
+
+        # Clean up spacing around punctuation
+        text = re.sub(r'\s+([.,;:!?·])', r'\1', text)
+
+        return text
+
     def extract_with_pymupdf(self) -> List[Dict[str, Any]]:
         """Extract snippets using PyMuPDF (fast, good layout analysis).
 
@@ -654,7 +724,10 @@ class PDFExtractor:
                 page_texts = []
                 for page_num in range(len(doc)):
                     page = doc[page_num]
-                    if self.skip_footnotes:
+                    if self.two_column:
+                        # Two-column layout: extract from body columns only, skip footnote zone
+                        text = self._extract_two_column_body_pymupdf(page)
+                    elif self.skip_footnotes:
                         text = self._extract_body_text_pymupdf(page)
                     else:
                         text = page.get_text()
@@ -882,12 +955,62 @@ class PDFExtractor:
 
         return snippets
 
+    def _extract_two_column_body_pdfplumber(
+        self, page: "pdfplumber.page.Page", footnote_zone_ratio: float = 0.25
+    ) -> str:
+        """Extract body text from two-column layout using pdfplumber.
+
+        Args:
+            page: pdfplumber page object
+            footnote_zone_ratio: Fraction of page height to consider as footnote zone
+
+        Returns:
+            Body text with footnotes excluded, in reading order
+        """
+        page_height = page.height
+        page_width = page.width
+        footnote_cutoff_y = page_height * (1 - footnote_zone_ratio)
+
+        words = page.extract_words()
+        if not words:
+            return ""
+
+        body_words = []
+        for word in words:
+            y_bottom = word["bottom"]
+            x_center = (word["x0"] + word["x1"]) / 2
+
+            # Skip words in the footnote zone
+            if y_bottom > footnote_cutoff_y:
+                continue
+
+            # Determine column
+            column = 0 if x_center < page_width / 2 else 1
+
+            body_words.append({
+                "y": y_bottom,
+                "x": word["x0"],
+                "column": column,
+                "text": word["text"]
+            })
+
+        # Sort by reading order: column first, then y position, then x position
+        body_words.sort(key=lambda w: (w["column"], w["y"], w["x"]))
+
+        text = " ".join(w["text"] for w in body_words)
+        text = re.sub(r'\s+([.,;:!?·])', r'\1', text)
+
+        return text
+
     def _extract_page_snippet_pdfplumber(
         self, page: "pdfplumber.page.Page", page_num: int
     ) -> Dict[str, Any]:
         """Extract snippet from a single page using pdfplumber."""
         try:
-            if self.strategy == "bottom_visual":
+            if self.two_column:
+                # Two-column layout: extract from body columns only
+                text = self._extract_two_column_body_pdfplumber(page)
+            elif self.strategy == "bottom_visual":
                 # Get words with bounding boxes
                 words = page.extract_words()
 
@@ -1006,7 +1129,10 @@ class PDFExtractor:
         print(f"\nExtracting snippets from {self.pdf_path.name}")
         print(f"Strategy: {self.strategy}")
         print(f"Snippet length: {self.snippet_words} words")
-        print(f"Backend: {self.backend}\n")
+        print(f"Backend: {self.backend}")
+        if self.two_column:
+            print("Layout: Two-column (footnote zone excluded)")
+        print()
 
         if self.backend == "pymupdf":
             return self.extract_with_pymupdf()
