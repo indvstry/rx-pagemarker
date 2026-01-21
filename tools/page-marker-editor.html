@@ -385,6 +385,29 @@
             background: #e74c3c;
         }
 
+        /* ==================== UNSAVED WARNING ==================== */
+        /**
+         * Prominent warning banner shown when there are unsaved changes
+         * - Bright orange/yellow background for high visibility
+         * - Stays at top of content area
+         * - Cannot be dismissed (must download to clear)
+         */
+        .unsaved-warning {
+            background: linear-gradient(135deg, #ff6b35, #f7931e);
+            color: white;
+            padding: 12px 20px;
+            text-align: center;
+            font-weight: bold;
+            font-size: 14px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            animation: pulse-warning 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse-warning {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.85; }
+        }
+
         /* ==================== RESPONSIVE ==================== */
         /* Hide instructions sidebar on narrow screens (<900px) */
         @media (max-width: 900px) {
@@ -422,6 +445,10 @@
         <button id="downloadBtn" class="btn-success" disabled>Download Corrected HTML</button>
 
         <div class="stats" id="stats"></div>
+    </div>
+
+    <div id="unsavedWarning" class="unsaved-warning" style="display: none;">
+        ⚠️ You have unsaved changes — they will be LOST if you refresh or close this page!
     </div>
 
     <div class="main">
@@ -548,6 +575,7 @@
         const statsEl = document.getElementById('stats');
         const toastEl = document.getElementById('toast');
         const dropCursor = document.getElementById('drop-cursor');
+        const unsavedWarning = document.getElementById('unsavedWarning');
 
         // ============================================================
         // FILE LOADING
@@ -1071,8 +1099,9 @@
                 historyIndex--;        // Adjust index to match
             }
 
-            // Mark that we have unsaved changes
+            // Mark that we have unsaved changes and show warning
             hasUnsavedChanges = true;
+            unsavedWarning.style.display = 'block';
 
             updateButtons();
             updateStats();
@@ -1527,8 +1556,9 @@
             document.body.removeChild(a);
             URL.revokeObjectURL(url);  // Clean up blob URL
 
-            // Clear unsaved changes flag after successful download
+            // Clear unsaved changes flag and hide warning after successful download
             hasUnsavedChanges = false;
+            unsavedWarning.style.display = 'none';
 
             showToast('File downloaded!', 'success');
         });
