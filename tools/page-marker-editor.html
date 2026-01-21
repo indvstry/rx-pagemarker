@@ -532,6 +532,9 @@
          */
         let dropTarget = null;
 
+        /** @type {string} localStorage key for auto-save */
+        const STORAGE_KEY = 'pageMarkerEditor_autosave';
+
         // ============================================================
         // DOM ELEMENT REFERENCES
         // ============================================================
@@ -656,6 +659,89 @@
             downloadBtn.disabled = false;
             addModeBtn.disabled = false;
         }
+
+        // ============================================================
+        // AUTO-SAVE TO LOCAL STORAGE
+        // ============================================================
+
+        /**
+         * Save current editor state to localStorage
+         * Called after every change to prevent data loss on refresh
+         */
+        function autoSave() {
+            try {
+                const data = {
+                    originalHTML: originalHTML,
+                    editorContent: editor.innerHTML,
+                    timestamp: Date.now()
+                };
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+            } catch (e) {
+                // localStorage might be full or disabled - silently ignore
+                console.warn('[AutoSave] Failed to save:', e.message);
+            }
+        }
+
+        /**
+         * Clear saved state from localStorage
+         * Called after successful download
+         */
+        function clearAutoSave() {
+            try {
+                localStorage.removeItem(STORAGE_KEY);
+            } catch (e) {
+                // Silently ignore
+            }
+        }
+
+        /**
+         * Check for and restore saved state on page load
+         * Note: Uses innerHTML to restore user's own saved content from localStorage
+         * This is safe as the content originates from the user's previous session
+         */
+        function checkForSavedState() {
+            try {
+                const saved = localStorage.getItem(STORAGE_KEY);
+                if (!saved) return;
+
+                const data = JSON.parse(saved);
+                const age = Date.now() - data.timestamp;
+                const ageMinutes = Math.floor(age / 60000);
+                const ageText = ageMinutes < 60
+                    ? ageMinutes + ' minutes ago'
+                    : Math.floor(ageMinutes / 60) + ' hours ago';
+
+                // Show restore prompt
+                if (confirm('⚠️ Found unsaved work from ' + ageText + '.\n\nDo you want to restore it?\n\nClick OK to restore, or Cancel to start fresh.')) {
+                    originalHTML = data.originalHTML;
+                    // Restore editor content (user's own saved data from localStorage)
+                    editor.innerHTML = data.editorContent;
+                    editor.classList.remove('empty');
+
+                    // Initialize history and state
+                    history = [editor.cloneNode(true)];
+                    historyIndex = 0;
+                    hasUnsavedChanges = true;
+
+                    updateButtons();
+                    updateStats();
+                    setupMarkerDragging();
+
+                    downloadBtn.disabled = false;
+                    addModeBtn.disabled = false;
+
+                    showToast('Previous work restored!', 'success');
+                } else {
+                    // User chose not to restore - clear saved state
+                    clearAutoSave();
+                }
+            } catch (e) {
+                console.warn('[AutoSave] Failed to restore:', e.message);
+            }
+        }
+
+        // Check for saved state on page load
+        checkForSavedState();
 
         // ============================================================
         // DRAG AND DROP SYSTEM
@@ -1071,8 +1157,9 @@
                 historyIndex--;        // Adjust index to match
             }
 
-            // Mark that we have unsaved changes
+            // Mark that we have unsaved changes and auto-save
             hasUnsavedChanges = true;
+            autoSave();
 
             updateButtons();
             updateStats();
@@ -1527,8 +1614,9 @@
             document.body.removeChild(a);
             URL.revokeObjectURL(url);  // Clean up blob URL
 
-            // Clear unsaved changes flag after successful download
+            // Clear unsaved changes flag and auto-save after successful download
             hasUnsavedChanges = false;
+            clearAutoSave();
 
             showToast('File downloaded!', 'success');
         });
