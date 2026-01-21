@@ -6,8 +6,22 @@ A Python tool that inserts page number markers into HTML files for EPUB3 generat
 ## Page Marker HTML Format
 The tool inserts standardized page markers:
 ```html
-<span class="page-number" role="note" aria-label="Page 5">5</span>
+<span id="page5" class="page-number" role="note" aria-label="Page 5">5</span>
 ```
+
+| Attribute | Purpose |
+|-----------|---------|
+| `id="page5"` | Unique ID for EPUB page-list navigation (`<a href="chapter.xhtml#page5">`) |
+| `class="page-number"` | CSS styling hook |
+| `role="note"` | ARIA landmark - screen readers announce as supplementary info |
+| `aria-label="Page 5"` | Full description for accessibility |
+
+**Two-column layouts**: When the same page number appears twice (different articles), IDs are suffixed:
+```html
+<span id="page36" ...>36</span>    <!-- First occurrence -->
+<span id="page36-2" ...>36</span>  <!-- Second occurrence -->
+```
+
 These markers enable EPUB page-list navigation, citation compatibility with print editions, and accessibility.
 
 ## Project Evolution
@@ -147,12 +161,26 @@ These markers enable EPUB page-list navigation, citation compatibility with prin
   - Zoom controls for detailed positioning
   - Download corrected HTML preserving original document structure
   - Toast notifications for user feedback
+  - **Auto-save to localStorage**: Your work is automatically saved after every change
+  - **Timestamped downloads**: Files are named `corrected_YYYY-MM-DD_HH-MM.html`
 - **Usage**:
   1. Open `tools/page-marker-editor.html` in any browser
   2. Click "Load HTML File" and select your marked HTML
   3. Drag red markers to correct positions
   4. To add missing markers: click "+ Add Marker", click a word, enter page number
   5. Click "Download Corrected HTML"
+  6. To continue editing later: reload any downloaded file
+- **Auto-save & Recovery**:
+  - Work is saved to browser's localStorage after every change
+  - On refresh or tab close, your work is preserved
+  - When reopening the editor, you'll be prompted: "Found unsaved work from X minutes ago. Do you want to restore it?"
+  - Click OK to restore and continue editing (no need to reload the file)
+  - Click Cancel to start fresh
+  - **What could cause data loss**:
+    - Clearing browser data/cache
+    - Saved data older than 7 days (auto-cleared)
+    - Using incognito/private browsing mode
+    - Clicking "Cancel" on the restore prompt
 - **Sample file**: `examples/sample_with_markers.html` for testing
 - **Known limitation**: The download uses XMLSerializer which reformats HTML:
   - Adds `<!DOCTYPE html>` declaration
