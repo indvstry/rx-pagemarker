@@ -518,6 +518,9 @@
         /** @type {HTMLElement|null} Currently highlighted word element in add mode */
         let highlightedWord = null;
 
+        /** @type {boolean} Whether there are unsaved changes (for refresh warning) */
+        let hasUnsavedChanges = false;
+
         /** @type {HTMLElement|null} The marker element currently being dragged */
         let draggedMarker = null;
 
@@ -570,6 +573,19 @@
                 showToast('Error loading file', 'error');
             };
             reader.readAsText(file);
+        });
+
+        /**
+         * Warn user before leaving page with unsaved changes
+         * This prevents accidental loss of work when refreshing or closing the tab
+         */
+        window.addEventListener('beforeunload', function(e) {
+            if (hasUnsavedChanges) {
+                // Standard way to trigger browser's "unsaved changes" warning
+                e.preventDefault();
+                e.returnValue = '';  // Required for Chrome
+                return '';
+            }
         });
 
         /**
@@ -1055,6 +1071,9 @@
                 historyIndex--;        // Adjust index to match
             }
 
+            // Mark that we have unsaved changes
+            hasUnsavedChanges = true;
+
             updateButtons();
             updateStats();
         }
@@ -1507,6 +1526,9 @@
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(url);  // Clean up blob URL
+
+            // Clear unsaved changes flag after successful download
+            hasUnsavedChanges = false;
 
             showToast('File downloaded!', 'success');
         });
