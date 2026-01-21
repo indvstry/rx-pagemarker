@@ -690,7 +690,8 @@
             try {
                 localStorage.removeItem(STORAGE_KEY);
             } catch (e) {
-                // Silently ignore
+                // Non-critical: user can manually clear browser data if needed
+                console.warn('[AutoSave] Failed to clear saved state:', e.message);
             }
         }
 
@@ -700,19 +701,51 @@
          * This is safe as the content originates from the user's previous session
          */
         function checkForSavedState() {
+            let saved;
             try {
-                const saved = localStorage.getItem(STORAGE_KEY);
-                if (!saved) return;
+                saved = localStorage.getItem(STORAGE_KEY);
+            } catch (e) {
+                console.warn('[AutoSave] Cannot access localStorage:', e.message);
+                return;
+            }
 
-                const data = JSON.parse(saved);
-                const age = Date.now() - data.timestamp;
-                const ageMinutes = Math.floor(age / 60000);
-                const ageText = ageMinutes < 60
-                    ? ageMinutes + ' minutes ago'
-                    : Math.floor(ageMinutes / 60) + ' hours ago';
+            if (!saved) return;
 
-                // Show restore prompt
-                if (confirm('⚠️ Found unsaved work from ' + ageText + '.\n\nDo you want to restore it?\n\nClick OK to restore, or Cancel to start fresh.')) {
+            // Parse saved data with error handling for corrupted JSON
+            let data;
+            try {
+                data = JSON.parse(saved);
+            } catch (e) {
+                console.warn('[AutoSave] Saved data is corrupted, clearing:', e.message);
+                clearAutoSave();
+                return;
+            }
+
+            // Validate required fields exist
+            if (!data.timestamp || !data.editorContent) {
+                console.warn('[AutoSave] Saved data is incomplete, clearing');
+                clearAutoSave();
+                return;
+            }
+
+            const age = Date.now() - data.timestamp;
+
+            // Sanity check: reject data older than 7 days or with future timestamps
+            const MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days
+            if (age < 0 || age > MAX_AGE) {
+                console.warn('[AutoSave] Saved data has invalid timestamp, clearing');
+                clearAutoSave();
+                return;
+            }
+
+            const ageMinutes = Math.floor(age / 60000);
+            const ageText = ageMinutes < 60
+                ? ageMinutes + ' minutes ago'
+                : Math.floor(ageMinutes / 60) + ' hours ago';
+
+            // Show restore prompt
+            if (confirm('⚠️ Found unsaved work from ' + ageText + '.\n\nDo you want to restore it?\n\nClick OK to restore, or Cancel to start fresh.')) {
+                try {
                     originalHTML = data.originalHTML;
                     // Restore editor content (user's own saved data from localStorage)
                     editor.innerHTML = data.editorContent;
@@ -731,12 +764,14 @@
                     addModeBtn.disabled = false;
 
                     showToast('Previous work restored!', 'success');
-                } else {
-                    // User chose not to restore - clear saved state
+                } catch (e) {
+                    console.error('[AutoSave] Failed to apply restored data:', e.message);
+                    showToast('Failed to restore - data may be incompatible', 'error');
                     clearAutoSave();
                 }
-            } catch (e) {
-                console.warn('[AutoSave] Failed to restore:', e.message);
+            } else {
+                // User chose not to restore - clear saved state
+                clearAutoSave();
             }
         }
 
@@ -1089,8 +1124,11 @@
             marker.remove();
 
             // Create new text nodes for before/after content (with spacing around marker)
-            const beforeNode = document.createTextNode(before + ' ');
-            const afterNode = document.createTextNode(' ' + after);
+            // Only add space if not already present to avoid double spaces
+            const beforeWithSpace = before.endsWith(' ') ? before : before + ' ';
+            const afterWithSpace = after.startsWith(' ') ? after : ' ' + after;
+            const beforeNode = document.createTextNode(beforeWithSpace);
+            const afterNode = document.createTextNode(afterWithSpace);
 
             // Insert the three new nodes in place of the original text node
             // Order: before text → marker → after text
@@ -1483,11 +1521,19 @@
 
             try {
                 // Replace wrapper with: text + space + marker + space
-                const textNode = document.createTextNode(wordText + ' ');
-                const spaceAfter = document.createTextNode(' ');
+                // Only add spaces if not already present to avoid double spaces
+                const needsSpaceBefore = !wordText.endsWith(' ');
+                const nextSibling = wordWrapper.nextSibling;
+                const nextText = nextSibling && nextSibling.nodeType === Node.TEXT_NODE ? nextSibling.textContent : '';
+                const needsSpaceAfter = !nextText.startsWith(' ');
+
+                const textNode = document.createTextNode(wordText + (needsSpaceBefore ? ' ' : ''));
                 parent.insertBefore(textNode, wordWrapper);
                 parent.insertBefore(newMarker, wordWrapper);
-                parent.insertBefore(spaceAfter, wordWrapper);
+                if (needsSpaceAfter) {
+                    const spaceAfter = document.createTextNode(' ');
+                    parent.insertBefore(spaceAfter, wordWrapper);
+                }
                 parent.removeChild(wordWrapper);
             } catch (err) {
                 console.error('[Add Mode] Failed to insert marker:', err);
