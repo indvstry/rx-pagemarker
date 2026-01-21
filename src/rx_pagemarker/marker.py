@@ -555,9 +555,9 @@ class PageMarkerInserter:
         before_text = text_content[:position_in_node]
         after_text = text_content[position_in_node:]
 
-        # Create new text nodes
-        before_node = NavigableString(before_text)
-        after_node = NavigableString(after_text) if after_text else None
+        # Create new text nodes with spacing around marker for readability
+        before_node = NavigableString(before_text + " ")
+        after_node = NavigableString(" " + after_text) if after_text else None
 
         # Insert in order: before, marker, after
         text_node.replace_with(before_node)

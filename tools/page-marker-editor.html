@@ -986,9 +986,9 @@
             // Remove old marker from its current position
             marker.remove();
 
-            // Create new text nodes for before/after content
-            const beforeNode = document.createTextNode(before);
-            const afterNode = document.createTextNode(after);
+            // Create new text nodes for before/after content (with spacing around marker)
+            const beforeNode = document.createTextNode(before + ' ');
+            const afterNode = document.createTextNode(' ' + after);
 
             // Insert the three new nodes in place of the original text node
             // Order: before text → marker → after text
@@ -1376,10 +1376,12 @@
             const wordText = wordWrapper.textContent;
 
             try {
-                // Replace wrapper with: text + marker
-                const textNode = document.createTextNode(wordText);
+                // Replace wrapper with: text + space + marker + space
+                const textNode = document.createTextNode(wordText + ' ');
+                const spaceAfter = document.createTextNode(' ');
                 parent.insertBefore(textNode, wordWrapper);
                 parent.insertBefore(newMarker, wordWrapper);
+                parent.insertBefore(spaceAfter, wordWrapper);
                 parent.removeChild(wordWrapper);
             } catch (err) {
                 console.error('[Add Mode] Failed to insert marker:', err);
