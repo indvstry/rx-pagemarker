@@ -162,7 +162,10 @@ These markers enable EPUB page-list navigation, citation compatibility with prin
   - Download corrected HTML preserving original document structure
   - Toast notifications for user feedback
   - **Auto-save to localStorage**: Your work is automatically saved after every change
+    - Notifies user after 3 consecutive save failures (localStorage full/disabled)
+    - Prompts manual download if auto-save unavailable
   - **Timestamped downloads**: Files are named `corrected_YYYY-MM-DD_HH-MM.html`
+  - **Export validation**: Skips corrupted markers without page numbers, notifies user of count
 - **Usage**:
   1. Open `tools/page-marker-editor.html` in any browser
   2. Click "Load HTML File" and select your marked HTML
@@ -189,7 +192,7 @@ These markers enable EPUB page-list navigation, citation compatibility with prin
   - Content and structure remain identical, only formatting changes
   - Safe for EPUB generation; not suitable if exact byte-for-byte preservation is needed
 
-## Current Status (as of 2025-01-17)
+## Current Status (as of 2025-01-21)
 
 ### Production Ready
 - ✅ Full CLI tool with professional packaging
