@@ -1605,10 +1605,19 @@
 
             // Trigger file download using Blob and temporary link
             const blob = new Blob([output], { type: 'text/html;charset=utf-8' });
+            // Generate filename with timestamp (e.g., corrected_2026-01-21_14-30.html)
+            const now = new Date();
+            const timestamp = now.getFullYear() + '-' +
+                String(now.getMonth() + 1).padStart(2, '0') + '-' +
+                String(now.getDate()).padStart(2, '0') + '_' +
+                String(now.getHours()).padStart(2, '0') + '-' +
+                String(now.getMinutes()).padStart(2, '0');
+            const filename = 'corrected_' + timestamp + '.html';
+
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = 'corrected.html';
+            a.download = filename;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
