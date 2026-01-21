@@ -1462,16 +1462,23 @@
 
             // Convert editor markers back to semantic EPUB format
             // Editor format:  <span class="page-marker" data-page="5">5</span>
-            // Export format:  <span class="page-number" role="note" aria-label="Page 5">5</span>
+            // Export format:  <span id="page5" class="page-number" role="note" aria-label="Page 5">5</span>
             const markers = tempDiv.querySelectorAll('.page-marker');
+            const pageOccurrences = {};  // Track duplicates for two-column layouts
             markers.forEach(function(marker) {
                 const pageNum = marker.getAttribute('data-page');
 
+                // Generate unique ID (handle duplicate page numbers)
+                pageOccurrences[pageNum] = (pageOccurrences[pageNum] || 0) + 1;
+                const suffix = pageOccurrences[pageNum] > 1 ? '-' + pageOccurrences[pageNum] : '';
+                const markerId = 'page' + pageNum + suffix;
+
                 // Create semantic marker with accessibility attributes
                 const newMarker = document.createElement('span');
+                newMarker.id = markerId;                                      // Unique ID for EPUB nav
                 newMarker.className = 'page-number';
-                newMarker.setAttribute('role', 'note');                    // ARIA role
-                newMarker.setAttribute('aria-label', 'Page ' + pageNum);   // Screen reader text
+                newMarker.setAttribute('role', 'note');                       // ARIA role
+                newMarker.setAttribute('aria-label', 'Page ' + pageNum);      // Screen reader text
                 newMarker.textContent = pageNum;
 
                 marker.replaceWith(newMarker);

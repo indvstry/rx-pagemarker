@@ -184,7 +184,7 @@ These markers enable EPUB page-list navigation, citation compatibility with prin
 - ✅ **Visual marker editor** - Browser-based drag-and-drop tool for correcting marker positions
 
 ### Known Issues
-- **HTML matching performance**: Slow for 500+ page PDFs (several minutes)
+- **Fuzzy HTML matching performance**: Slow for large documents (several minutes for 50k+ word HTML files) - only affects `--fuzzy-match` flag, not the default workflow
 - **Morphological coverage**: Some rare Greek word forms not in top-10k frequency list
 - **PDF extraction edge cases**: ~1.7% of pages may have extraction issues requiring manual snippets
 
@@ -316,7 +316,92 @@ For magazines/journals where different articles share the same page (e.g., left 
 
 ### High Priority
 1. ~~**Visual marker editor**~~ ✅ **Completed in Phase 11** - `tools/page-marker-editor.html`
-2. **Optimize HTML matching algorithm** - Reduce 500+ page processing from minutes to seconds
+
+2. **Unified Local Workflow with rx-magazine-validator**
+
+   **Goal**: Single command to validate HTML → extract page markers → insert markers
+
+   **Why**: Currently requires switching between web UI (validator) and CLI (pagemarker). Unified workflow reduces friction and ensures validation before marking.
+
+   **Architecture** (two separate repos, one workflow):
+   ```
+   rx-magazine-validator/     # Validation rules (Schematron + Python)
+   rx-pagemarker/             # Page marker extraction & insertion
+           ↓
+   Unified CLI script or local web app
+           ↓
+   Validate → Extract → Mark → Output
+   ```
+
+   **Implementation Options**:
+
+   | Option | Description | Effort |
+   |--------|-------------|--------|
+   | **CLI wrapper script** | Python script importing both tools, runs locally | Low |
+   | **Local web app** | Add pagemarker to validator's FastAPI, single localhost server | Medium |
+   | **Shared library** | Extract common code, both tools import it | High |
+
+   **Recommended: CLI wrapper script** (`tools/workflow.py`)
+   ```bash
+   # Usage
+   python tools/workflow.py magazine.html magazine.pdf --page-offset 769
+
+   # What it does:
+   # 1. Validates HTML structure (calls rx-magazine-validator)
+   # 2. If errors → stops and reports
+   # 3. If valid → extracts snippets from PDF
+   # 4. Inserts page markers into HTML
+   # 5. Outputs marked HTML file
+   ```
+
+   **Workflow Diagram**:
+   ```
+   ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+   │  HTML file  │     │  PDF file   │     │  Config     │
+   │  (InDesign) │     │  (source)   │     │  (offset)   │
+   └──────┬──────┘     └──────┬──────┘     └──────┬──────┘
+          │                   │                   │
+          ▼                   │                   │
+   ┌─────────────────────┐    │                   │
+   │  rx-magazine-       │    │                   │
+   │  validator          │    │                   │
+   │  (structure check)  │    │                   │
+   └──────────┬──────────┘    │                   │
+              │               │                   │
+         valid? ──No──► STOP with errors         │
+              │                                   │
+              │Yes                                │
+              ▼                                   │
+   ┌─────────────────────────────────────────────┤
+   │  rx-pagemarker extract                      │
+   │  (PDF → snippets.json)                      │
+   └──────────┬──────────────────────────────────┘
+              │
+              ▼
+   ┌─────────────────────┐
+   │  rx-pagemarker mark │
+   │  (HTML + snippets   │
+   │   → marked HTML)    │
+   └──────────┬──────────┘
+              │
+              ▼
+   ┌─────────────────────┐
+   │  Output:            │
+   │  - marked.html      │
+   │  - snippets.json    │
+   │  - validation.log   │
+   └─────────────────────┘
+   ```
+
+   **Prerequisites**:
+   - Both repos cloned locally
+   - Single virtualenv with both installed:
+     ```bash
+     pip install -e /path/to/rx-magazine-validator
+     pip install -e "/path/to/rx-pagemarker[pdf]"
+     ```
+
+   **Future Enhancement**: Add `/validate-and-mark` endpoint to validator's FastAPI for web-based unified workflow (optional - CLI may be sufficient).
 
 ### Medium Priority
 3. **Multi-language support** - Add frequency dictionaries for other languages (English, French, etc.)
@@ -337,11 +422,25 @@ For magazines/journals where different articles share the same page (e.g., left 
      {"page": 36, "snippet": "start of right column article"}
      ```
 
+### Low Priority
+8. **Optimize HTML fuzzy matching algorithm** - Only used with `--fuzzy-match` flag (rare)
+   - **Why low priority**: Default workflow uses fast word completion (~100ms/snippet) and context correction (~50ms/snippet), achieving 97%+ success rate. Fuzzy matching is only needed for heavily corrupted PDFs where word boundaries are completely broken.
+   - **Current complexity**: O(W × N × L) where W=window sizes tried, N=positions, L=window length
+     - Outer loop: iterates through window sizes (from snippet_len/20 to total_words)
+     - Inner loop: iterates through all starting positions
+     - Each iteration: computes fuzzy similarity O(L)
+     - Approaches O(N²) for large documents since W approaches N
+   - **Potential optimizations** (if ever needed):
+     - N-gram indexing with locality-sensitive hashing → O(N) build, O(1) lookup
+     - Rabin-Karp rolling hash → O(N) per query
+     - Better pruning heuristics and early termination
+     - Parallel processing across snippets
+
 ### Future Enhancements
-8. **Interactive preview mode** - Preview matches before insertion
-9. **Batch processing** - Process multiple HTML files at once
-10. **OCR support** - Handle image-based PDFs with Tesseract
-11. **Neural word segmentation** - ML model for language-agnostic segmentation
+9. **Interactive preview mode** - Preview matches before insertion
+10. **Batch processing** - Process multiple HTML files at once
+11. **OCR support** - Handle image-based PDFs with Tesseract
+12. **Neural word segmentation** - ML model for language-agnostic segmentation
 
 ## Technical Decisions
 
@@ -359,6 +458,26 @@ For magazines/journals where different articles share the same page (e.g., left 
 - **Accuracy**: Perfect word boundaries when HTML source is available
 - **Trade-off**: Slower than segmentation but higher quality
 - **Use case**: Best for InDesign exports where you have both PDF and clean HTML
+
+### Fast vs Slow HTML Correction
+
+The tool has three HTML correction approaches (N = HTML document size in words):
+
+| Approach | Flag | Complexity | Speed | Use Case |
+|----------|------|------------|-------|----------|
+| **Word completion** | (default) | O(N) linear | ~100ms/snippet | Default - completes partial words at snippet boundaries |
+| **Context correction** | (default) | O(N) linear | ~50ms/snippet | Default - fixes merged words using anchor sequences |
+| **Fuzzy matching** | `--fuzzy-match` | O(N²) quadratic | seconds/snippet | Rare - heavily corrupted PDFs only |
+
+**Default workflow (97%+ success rate):**
+- Word completion finds partial words and completes them from HTML
+- Context correction locates anchor sequences and extracts correct surrounding text
+- Both are fast O(N) algorithms suitable for any document size
+
+**Fuzzy matching (rarely needed):**
+- Slides a window across entire HTML, computing fuzzy similarity at each position
+- Required only when PDF has completely broken word boundaries
+- Known to be slow but rarely used in practice
 
 ### The Offset Hack: Why +1 to page offset?
 EPUB page navigation expects markers to indicate where a page **begins**. We solve this with a minor offset adjustment:

@@ -320,11 +320,15 @@ class PageMarkerInserter:
 
         return locations
 
-    def create_page_marker(self, page_number: Union[str, int]) -> Tag:
+    def create_page_marker(
+        self, page_number: Union[str, int], occurrence: int = 1
+    ) -> Tag:
         """Create a page marker span element.
 
         Args:
             page_number: The page number to insert
+            occurrence: Which occurrence of this page number (1 = first, 2 = second, etc.)
+                        Used for two-column layouts where same page appears twice.
 
         Returns:
             BeautifulSoup Tag object for the page marker
@@ -332,7 +336,12 @@ class PageMarkerInserter:
         if self.soup is None:
             raise ValueError("HTML not loaded. Call load_html() first.")
 
+        # Generate unique ID (suffix for duplicates in two-column layouts)
+        suffix = f"-{occurrence}" if occurrence > 1 else ""
+        marker_id = f"page{page_number}{suffix}"
+
         marker = self.soup.new_tag("span")
+        marker["id"] = marker_id
         marker["class"] = "page-number"
         marker["role"] = "note"
         marker["aria-label"] = f"Page {page_number}"
@@ -436,6 +445,7 @@ class PageMarkerInserter:
         snippet: str,
         context_before: Optional[str] = None,
         context_after: Optional[str] = None,
+        occurrence: int = 1,
     ) -> bool:
         """Insert a page marker after the specified snippet.
 
@@ -452,6 +462,8 @@ class PageMarkerInserter:
             snippet: Text snippet that marks the insertion point
             context_before: Optional context words before snippet (from PDF)
             context_after: Optional context words after snippet (from PDF)
+            occurrence: Which occurrence of this page number (1 = first, 2 = second, etc.)
+                        Used for two-column layouts where same page appears twice.
 
         Returns:
             True if successful, False otherwise
@@ -535,7 +547,7 @@ class PageMarkerInserter:
             return False
 
         # Create the page marker
-        marker = self.create_page_marker(page_number)
+        marker = self.create_page_marker(page_number, occurrence)
 
         # Split the text node at the position where snippet ends
         text_content = str(text_node)
@@ -588,6 +600,9 @@ class PageMarkerInserter:
             )
         )
 
+        # Track page occurrences for duplicate IDs (two-column layouts)
+        page_occurrences: Dict[Union[str, int], int] = {}
+
         for entry in sorted_refs:
             page = entry.get("page")
             snippet = entry.get("snippet")
@@ -597,11 +612,15 @@ class PageMarkerInserter:
                 self.stats["not_found"] += 1
                 continue
 
+            # Track occurrence for unique ID generation
+            page_occurrences[page] = page_occurrences.get(page, 0) + 1
+            occurrence = page_occurrences[page]
+
             # Extract context for disambiguation (if present in JSON)
             context_before = entry.get("context_before")
             context_after = entry.get("context_after")
 
-            self.insert_page_marker(page, snippet, context_before, context_after)
+            self.insert_page_marker(page, snippet, context_before, context_after, occurrence)
 
     def _inject_page_number_css(self) -> None:
         """Inject CSS styling for page-number markers into the HTML head."""
