@@ -536,6 +536,48 @@
         const STORAGE_KEY = 'pageMarkerEditor_autosave';
 
         // ============================================================
+        // UTILITY FUNCTIONS
+        // ============================================================
+
+        /**
+         * Format a Date object as a timestamp string for filenames
+         * Format: YYYY-MM-DD_HH-MM (e.g., 2026-01-21_14-30)
+         *
+         * @param {Date} date - The date to format
+         * @returns {string} Formatted timestamp
+         */
+        function formatTimestamp(date) {
+            const pad = function(n) { return String(n).padStart(2, '0'); };
+            return date.getFullYear() + '-' +
+                pad(date.getMonth() + 1) + '-' +
+                pad(date.getDate()) + '_' +
+                pad(date.getHours()) + '-' +
+                pad(date.getMinutes());
+        }
+
+        /**
+         * Ensure text has a trailing space (for before marker)
+         * Avoids double spaces if already present
+         *
+         * @param {string} text - Text to check
+         * @returns {string} Text with trailing space
+         */
+        function ensureTrailingSpace(text) {
+            return text.endsWith(' ') ? text : text + ' ';
+        }
+
+        /**
+         * Ensure text has a leading space (for after marker)
+         * Avoids double spaces if already present
+         *
+         * @param {string} text - Text to check
+         * @returns {string} Text with leading space
+         */
+        function ensureLeadingSpace(text) {
+            return text.startsWith(' ') ? text : ' ' + text;
+        }
+
+        // ============================================================
         // DOM ELEMENT REFERENCES
         // ============================================================
 
@@ -664,6 +706,10 @@
         // AUTO-SAVE TO LOCAL STORAGE
         // ============================================================
 
+        // Track auto-save failures to notify user after repeated issues
+        let autoSaveFailCount = 0;
+        const MAX_AUTOSAVE_FAILS = 3;
+
         /**
          * Save current editor state to localStorage
          * Called after every change to prevent data loss on refresh
@@ -676,9 +722,15 @@
                     timestamp: Date.now()
                 };
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+                autoSaveFailCount = 0;  // Reset on success
             } catch (e) {
-                // localStorage might be full or disabled - silently ignore
+                autoSaveFailCount++;
                 console.warn('[AutoSave] Failed to save:', e.message);
+
+                // Notify user after repeated failures so they know to save manually
+                if (autoSaveFailCount === MAX_AUTOSAVE_FAILS) {
+                    showToast('Auto-save disabled: ' + e.message + '. Please download your work manually!', 'error');
+                }
             }
         }
 
@@ -1124,11 +1176,8 @@
             marker.remove();
 
             // Create new text nodes for before/after content (with spacing around marker)
-            // Only add space if not already present to avoid double spaces
-            const beforeWithSpace = before.endsWith(' ') ? before : before + ' ';
-            const afterWithSpace = after.startsWith(' ') ? after : ' ' + after;
-            const beforeNode = document.createTextNode(beforeWithSpace);
-            const afterNode = document.createTextNode(afterWithSpace);
+            const beforeNode = document.createTextNode(ensureTrailingSpace(before));
+            const afterNode = document.createTextNode(ensureLeadingSpace(after));
 
             // Insert the three new nodes in place of the original text node
             // Order: before text → marker → after text
@@ -1521,18 +1570,16 @@
 
             try {
                 // Replace wrapper with: text + space + marker + space
-                // Only add spaces if not already present to avoid double spaces
-                const needsSpaceBefore = !wordText.endsWith(' ');
+                // Check if next sibling already has a leading space
                 const nextSibling = wordWrapper.nextSibling;
-                const nextText = nextSibling && nextSibling.nodeType === Node.TEXT_NODE ? nextSibling.textContent : '';
-                const needsSpaceAfter = !nextText.startsWith(' ');
+                const nextHasSpace = nextSibling && nextSibling.nodeType === Node.TEXT_NODE &&
+                    nextSibling.textContent.startsWith(' ');
 
-                const textNode = document.createTextNode(wordText + (needsSpaceBefore ? ' ' : ''));
+                const textNode = document.createTextNode(ensureTrailingSpace(wordText));
                 parent.insertBefore(textNode, wordWrapper);
                 parent.insertBefore(newMarker, wordWrapper);
-                if (needsSpaceAfter) {
-                    const spaceAfter = document.createTextNode(' ');
-                    parent.insertBefore(spaceAfter, wordWrapper);
+                if (!nextHasSpace) {
+                    parent.insertBefore(document.createTextNode(' '), wordWrapper);
                 }
                 parent.removeChild(wordWrapper);
             } catch (err) {
@@ -1619,8 +1666,17 @@
             // Export format:  <span id="page5" class="page-number" role="note" aria-label="Page 5">5</span>
             const markers = tempDiv.querySelectorAll('.page-marker');
             const pageOccurrences = {};  // Track duplicates for two-column layouts
+            let skippedMarkers = 0;
             markers.forEach(function(marker) {
                 const pageNum = marker.getAttribute('data-page');
+
+                // Skip corrupted markers without page number to avoid "pagenull" IDs
+                if (!pageNum) {
+                    console.warn('[Export] Skipping marker without page number:', marker);
+                    marker.remove();
+                    skippedMarkers++;
+                    return;
+                }
 
                 // Generate unique ID (handle duplicate page numbers)
                 pageOccurrences[pageNum] = (pageOccurrences[pageNum] || 0) + 1;
@@ -1652,13 +1708,7 @@
             // Trigger file download using Blob and temporary link
             const blob = new Blob([output], { type: 'text/html;charset=utf-8' });
             // Generate filename with timestamp (e.g., corrected_2026-01-21_14-30.html)
-            const now = new Date();
-            const timestamp = now.getFullYear() + '-' +
-                String(now.getMonth() + 1).padStart(2, '0') + '-' +
-                String(now.getDate()).padStart(2, '0') + '_' +
-                String(now.getHours()).padStart(2, '0') + '-' +
-                String(now.getMinutes()).padStart(2, '0');
-            const filename = 'corrected_' + timestamp + '.html';
+            const filename = 'corrected_' + formatTimestamp(new Date()) + '.html';
 
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
@@ -1673,7 +1723,11 @@
             hasUnsavedChanges = false;
             clearAutoSave();
 
-            showToast('File downloaded!', 'success');
+            if (skippedMarkers > 0) {
+                showToast('File downloaded! (' + skippedMarkers + ' invalid marker(s) removed)', 'error');
+            } else {
+                showToast('File downloaded!', 'success');
+            }
         });
 
         // ============================================================

@@ -4,6 +4,7 @@ import json
 import re
 import sys
 import unicodedata
+from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -604,7 +605,7 @@ class PageMarkerInserter:
         )
 
         # Track page occurrences for duplicate IDs (two-column layouts)
-        page_occurrences: Dict[Union[str, int], int] = {}
+        page_occurrences: Dict[Union[str, int], int] = defaultdict(int)
 
         for entry in sorted_refs:
             page = entry.get("page")
@@ -616,7 +617,7 @@ class PageMarkerInserter:
                 continue
 
             # Track occurrence for unique ID generation
-            page_occurrences[page] = page_occurrences.get(page, 0) + 1
+            page_occurrences[page] += 1
             occurrence = page_occurrences[page]
 
             # Extract context for disambiguation (if present in JSON)
