@@ -162,7 +162,7 @@ These markers enable EPUB page-list navigation, citation compatibility with prin
   - Download corrected HTML preserving original document structure
   - **Copy Body Content**: Copy inner body HTML to clipboard (no `<html>`/`<head>`/`<body>` wrapper) for pasting into other documents
     - Useful for re-editing a single article: paste article HTML into a file, edit markers, copy back
-    - Clipboard API guard for `file://` protocol — falls back to Download if unavailable
+    - Clipboard API guard for `file://` protocol — suggests Download if clipboard unavailable
   - Toast notifications for user feedback
   - **Auto-save to localStorage**: Your work is automatically saved after every change
     - Notifies user after 3 consecutive save failures (localStorage full/disabled)
