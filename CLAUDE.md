@@ -160,6 +160,9 @@ These markers enable EPUB page-list navigation, citation compatibility with prin
   - Undo/Redo support (Ctrl+Z / Ctrl+Y)
   - Zoom controls for detailed positioning
   - Download corrected HTML preserving original document structure
+  - **Copy Body Content**: Copy inner body HTML to clipboard (no `<html>`/`<head>`/`<body>` wrapper) for pasting into other documents
+    - Useful for re-editing a single article: paste article HTML into a file, edit markers, copy back
+    - Clipboard API guard for `file://` protocol — falls back to Download if unavailable
   - Toast notifications for user feedback
   - **Auto-save to localStorage**: Your work is automatically saved after every change
     - Notifies user after 3 consecutive save failures (localStorage full/disabled)
@@ -171,8 +174,9 @@ These markers enable EPUB page-list navigation, citation compatibility with prin
   2. Click "Load HTML File" and select your marked HTML
   3. Drag red markers to correct positions
   4. To add missing markers: click "+ Add Marker", click a word, enter page number
-  5. Click "Download Corrected HTML"
-  6. To continue editing later: reload any downloaded file
+  5. Click "Download Corrected HTML" or "Copy Body Content" to clipboard
+  6. To re-edit a single article: copy its HTML into a file, load in editor, edit markers, use "Copy Body Content" to paste back
+  7. To continue editing later: reload any downloaded file
 - **Auto-save & Recovery**:
   - Work is saved to browser's localStorage after every change
   - On refresh or tab close, your work is preserved
