@@ -420,6 +420,7 @@
         </div>
 
         <button id="downloadBtn" class="btn-success" disabled>Download Corrected HTML</button>
+        <button id="copyBodyBtn" class="btn-success" disabled title="Copy body content to clipboard (without &lt;body&gt; tags)">Copy Body Content</button>
 
         <div class="stats" id="stats"></div>
     </div>
@@ -584,6 +585,7 @@
         const fileInput = document.getElementById('fileInput');
         const editor = document.getElementById('editor');
         const downloadBtn = document.getElementById('downloadBtn');
+        const copyBodyBtn = document.getElementById('copyBodyBtn');
         const addModeBtn = document.getElementById('addModeBtn');
         const undoBtn = document.getElementById('undoBtn');
         const redoBtn = document.getElementById('redoBtn');
@@ -699,6 +701,7 @@
             setupMarkerDragging();
 
             downloadBtn.disabled = false;
+            copyBodyBtn.disabled = false;
             addModeBtn.disabled = false;
         }
 
@@ -813,6 +816,7 @@
                     setupMarkerDragging();
 
                     downloadBtn.disabled = false;
+                    copyBodyBtn.disabled = false;
                     addModeBtn.disabled = false;
 
                     showToast('Previous work restored!', 'success');
@@ -1632,6 +1636,57 @@
         });
 
         // ============================================================
+        // EXPORT HELPERS
+        // ============================================================
+
+        /**
+         * Clone editor content and convert markers to semantic EPUB format.
+         *
+         * Editor format:  <span class="page-marker" data-page="5">5</span>
+         * Export format:   <span id="page5" class="page-number" role="note" aria-label="Page 5">5</span>
+         *
+         * Handles duplicate page numbers (two-column layouts) by suffixing IDs:
+         *   page36, page36-2, page36-3, etc.
+         *
+         * @returns {{ container: HTMLDivElement, skippedMarkers: number }}
+         */
+        function prepareExportedBody() {
+            var container = document.createElement('div');
+            Array.from(editor.childNodes).forEach(function(node) {
+                container.appendChild(node.cloneNode(true));
+            });
+
+            var markers = container.querySelectorAll('.page-marker');
+            var pageOccurrences = {};
+            var skippedMarkers = 0;
+
+            markers.forEach(function(marker) {
+                var pageNum = marker.getAttribute('data-page');
+
+                if (!pageNum) {
+                    console.warn('[Export] Skipping marker without page number:', marker);
+                    marker.remove();
+                    skippedMarkers++;
+                    return;
+                }
+
+                pageOccurrences[pageNum] = (pageOccurrences[pageNum] || 0) + 1;
+                var suffix = pageOccurrences[pageNum] > 1 ? '-' + pageOccurrences[pageNum] : '';
+
+                var newMarker = document.createElement('span');
+                newMarker.id = 'page' + pageNum + suffix;
+                newMarker.className = 'page-number';
+                newMarker.setAttribute('role', 'note');
+                newMarker.setAttribute('aria-label', 'Page ' + pageNum);
+                newMarker.textContent = pageNum;
+
+                marker.replaceWith(newMarker);
+            });
+
+            return { container: container, skippedMarkers: skippedMarkers };
+        }
+
+        // ============================================================
         // DOWNLOAD / EXPORT
         // ============================================================
 
@@ -1641,93 +1696,82 @@
          * Exports the edited content as an HTML file. The process:
          *
          * 1. Parse the original HTML to preserve <head> and other metadata
-         * 2. Clone current editor content
-         * 3. Convert editor markers (class="page-marker") back to semantic format
-         *    (class="page-number" role="note" aria-label="Page X")
-         * 4. Replace body content in original document
-         * 5. Serialize to HTML string and trigger download
+         * 2. Prepare exported body (clone + convert markers via prepareExportedBody)
+         * 3. Replace body content in original document
+         * 4. Serialize to HTML string and trigger download
          *
          * NOTE: XMLSerializer may reformat the HTML (reorder attributes,
          * collapse whitespace). The semantic content is preserved.
          */
         downloadBtn.addEventListener('click', function() {
+            var result = prepareExportedBody();
+
             // Parse original HTML to preserve <head> section
-            const parser = new DOMParser();
-            const originalDoc = parser.parseFromString(originalHTML, 'text/html');
-
-            // Clone current editor content to a temporary container
-            const tempDiv = document.createElement('div');
-            Array.from(editor.childNodes).forEach(function(node) {
-                tempDiv.appendChild(node.cloneNode(true));
-            });
-
-            // Convert editor markers back to semantic EPUB format
-            // Editor format:  <span class="page-marker" data-page="5">5</span>
-            // Export format:  <span id="page5" class="page-number" role="note" aria-label="Page 5">5</span>
-            const markers = tempDiv.querySelectorAll('.page-marker');
-            const pageOccurrences = {};  // Track duplicates for two-column layouts
-            let skippedMarkers = 0;
-            markers.forEach(function(marker) {
-                const pageNum = marker.getAttribute('data-page');
-
-                // Skip corrupted markers without page number to avoid "pagenull" IDs
-                if (!pageNum) {
-                    console.warn('[Export] Skipping marker without page number:', marker);
-                    marker.remove();
-                    skippedMarkers++;
-                    return;
-                }
-
-                // Generate unique ID (handle duplicate page numbers)
-                pageOccurrences[pageNum] = (pageOccurrences[pageNum] || 0) + 1;
-                const suffix = pageOccurrences[pageNum] > 1 ? '-' + pageOccurrences[pageNum] : '';
-                const markerId = 'page' + pageNum + suffix;
-
-                // Create semantic marker with accessibility attributes
-                const newMarker = document.createElement('span');
-                newMarker.id = markerId;                                      // Unique ID for EPUB nav
-                newMarker.className = 'page-number';
-                newMarker.setAttribute('role', 'note');                       // ARIA role
-                newMarker.setAttribute('aria-label', 'Page ' + pageNum);      // Screen reader text
-                newMarker.textContent = pageNum;
-
-                marker.replaceWith(newMarker);
-            });
+            var parser = new DOMParser();
+            var originalDoc = parser.parseFromString(originalHTML, 'text/html');
 
             // Replace body content in original document structure
             originalDoc.body.textContent = '';
-            Array.from(tempDiv.childNodes).forEach(function(node) {
+            Array.from(result.container.childNodes).forEach(function(node) {
                 originalDoc.body.appendChild(node.cloneNode(true));
             });
 
             // Serialize document to HTML string
-            // XMLSerializer handles the conversion but may reformat the output
-            const serializer = new XMLSerializer();
-            const output = '<!DOCTYPE html>\n' + serializer.serializeToString(originalDoc);
+            var serializer = new XMLSerializer();
+            var output = '<!DOCTYPE html>\n' + serializer.serializeToString(originalDoc);
 
             // Trigger file download using Blob and temporary link
-            const blob = new Blob([output], { type: 'text/html;charset=utf-8' });
-            // Generate filename with timestamp (e.g., corrected_2026-01-21_14-30.html)
-            const filename = 'corrected_' + formatTimestamp(new Date()) + '.html';
+            var blob = new Blob([output], { type: 'text/html;charset=utf-8' });
+            var filename = 'corrected_' + formatTimestamp(new Date()) + '.html';
 
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
             a.href = url;
             a.download = filename;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
-            URL.revokeObjectURL(url);  // Clean up blob URL
+            URL.revokeObjectURL(url);
 
             // Clear unsaved changes flag and auto-save after successful download
             hasUnsavedChanges = false;
             clearAutoSave();
 
-            if (skippedMarkers > 0) {
-                showToast('File downloaded! (' + skippedMarkers + ' invalid marker(s) removed)', 'error');
+            if (result.skippedMarkers > 0) {
+                showToast('File downloaded! (' + result.skippedMarkers + ' invalid marker(s) removed)', 'error');
             } else {
                 showToast('File downloaded!', 'success');
             }
+        });
+
+        // ============================================================
+        // COPY BODY CONTENT TO CLIPBOARD
+        // ============================================================
+
+        /**
+         * Copy the inner body content (with converted markers) to clipboard.
+         * Unlike download, this gives just the body innerHTML -- no <html>,
+         * <head>, <body> wrapper -- ready to paste into another document.
+         */
+        copyBodyBtn.addEventListener('click', function() {
+            if (!navigator.clipboard || !navigator.clipboard.writeText) {
+                console.warn('[Copy] Clipboard API not available (insecure context or unsupported browser)');
+                showToast('Copy not available in this browser context. Use Download instead.', 'error');
+                return;
+            }
+
+            var result = prepareExportedBody();
+
+            navigator.clipboard.writeText(result.container.innerHTML).then(function() {
+                if (result.skippedMarkers > 0) {
+                    showToast('Copied to clipboard! (' + result.skippedMarkers + ' invalid marker(s) removed)', 'error');
+                } else {
+                    showToast('Body content copied to clipboard!', 'success');
+                }
+            }).catch(function(err) {
+                console.error('[Copy] Clipboard write failed:', err.name, err.message);
+                showToast('Copy failed: ' + (err.message || 'clipboard not available') + '. Use Download instead.', 'error');
+            });
         });
 
         // ============================================================
