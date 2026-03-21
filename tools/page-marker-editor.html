@@ -1686,6 +1686,21 @@
             return { container: container, skippedMarkers: skippedMarkers };
         }
 
+        /**
+         * Show a toast after an export action, appending a warning if markers
+         * were skipped during conversion.
+         *
+         * @param {string} successMessage - Message shown when export succeeds cleanly
+         * @param {{ skippedMarkers: number }} result - Return value from prepareExportedBody
+         */
+        function showExportToast(successMessage, result) {
+            if (result.skippedMarkers > 0) {
+                showToast(successMessage + ' (' + result.skippedMarkers + ' invalid marker(s) removed)', 'error');
+            } else {
+                showToast(successMessage, 'success');
+            }
+        }
+
         // ============================================================
         // DOWNLOAD / EXPORT
         // ============================================================
@@ -1737,11 +1752,7 @@
             hasUnsavedChanges = false;
             clearAutoSave();
 
-            if (result.skippedMarkers > 0) {
-                showToast('File downloaded! (' + result.skippedMarkers + ' invalid marker(s) removed)', 'error');
-            } else {
-                showToast('File downloaded!', 'success');
-            }
+            showExportToast('File downloaded!', result);
         });
 
         // ============================================================
@@ -1763,11 +1774,7 @@
             var result = prepareExportedBody();
 
             navigator.clipboard.writeText(result.container.innerHTML).then(function() {
-                if (result.skippedMarkers > 0) {
-                    showToast('Copied to clipboard! (' + result.skippedMarkers + ' invalid marker(s) removed)', 'error');
-                } else {
-                    showToast('Body content copied to clipboard!', 'success');
-                }
+                showExportToast('Body content copied to clipboard!', result);
             }).catch(function(err) {
                 console.error('[Copy] Clipboard write failed:', err.name, err.message);
                 showToast('Copy failed: ' + (err.message || 'clipboard not available') + '. Use Download instead.', 'error');
