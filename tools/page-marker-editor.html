@@ -556,27 +556,6 @@
                 pad(date.getMinutes());
         }
 
-        /**
-         * Ensure text has a trailing space (for before marker)
-         * Avoids double spaces if already present
-         *
-         * @param {string} text - Text to check
-         * @returns {string} Text with trailing space
-         */
-        function ensureTrailingSpace(text) {
-            return text.endsWith(' ') ? text : text + ' ';
-        }
-
-        /**
-         * Ensure text has a leading space (for after marker)
-         * Avoids double spaces if already present
-         *
-         * @param {string} text - Text to check
-         * @returns {string} Text with leading space
-         */
-        function ensureLeadingSpace(text) {
-            return text.startsWith(' ') ? text : ' ' + text;
-        }
 
         // ============================================================
         // DOM ELEMENT REFERENCES
@@ -982,7 +961,8 @@
 
         /**
          * Handle mouse movement during drag
-         * Updates the visual drop cursor position based on mouse coordinates
+         * Updates the visual drop cursor position based on mouse coordinates.
+         * Snaps to the nearest word boundary so markers always land between words.
          *
          * @param {MouseEvent} e - The mousemove event
          */
@@ -1005,10 +985,12 @@
                     node = node.parentNode;
                 }
 
-                // Valid drop target: inside editor, not inside a marker
-                if (!insideMarker) {
-                    dropTarget = pos;
-                    showDropCursor(pos);
+                // Valid drop target: inside editor, not inside a marker, text node only
+                if (!insideMarker && pos.node.nodeType === Node.TEXT_NODE) {
+                    // Snap to nearest word boundary
+                    var snapped = snapToWordBoundary(pos.node, pos.offset);
+                    dropTarget = snapped;
+                    showDropCursor(snapped);
                     return;
                 }
             }
@@ -1016,6 +998,33 @@
             // Invalid position - hide cursor and clear target
             dropTarget = null;
             hideDropCursor();
+        }
+
+        /**
+         * Snap a caret position to the nearest word boundary.
+         * Returns a position at a whitespace gap between words.
+         *
+         * @param {Text} textNode - The text node
+         * @param {number} offset - Raw caret offset
+         * @returns {{node: Text, offset: number}} Snapped position
+         */
+        function snapToWordBoundary(textNode, offset) {
+            var text = textNode.textContent;
+
+            // If already on whitespace, stay there
+            if (offset >= text.length || /\s/.test(text[offset])) {
+                return { node: textNode, offset: offset };
+            }
+
+            // Find the word boundaries around the cursor
+            var boundaries = findWordBoundaries(text, offset);
+
+            // Snap to whichever boundary is closer (start or end of the word)
+            var distToStart = offset - boundaries.start;
+            var distToEnd = boundaries.end - offset;
+
+            var snappedOffset = distToEnd <= distToStart ? boundaries.end : boundaries.start;
+            return { node: textNode, offset: snappedOffset };
         }
 
         /**
@@ -1125,25 +1134,13 @@
         /**
          * Move a marker to a new position in the document
          *
-         * This is the core DOM manipulation that happens on drop. The algorithm:
-         *
-         * 1. Create a new marker element (we can't just move the old one because
-         *    we need to split a text node)
-         *
-         * 2. Split the target text node at the drop offset:
-         *    Before: "Hello world" (single text node)
-         *    After:  "Hello " + [MARKER] + "world" (text + element + text)
-         *
-         * 3. Remove the original marker
-         *
-         * 4. Insert the three new nodes (before text, marker, after text)
-         *
-         * Why split the text node? HTML text content is stored in Text nodes.
-         * To insert an element in the middle of text, we must split the Text node
-         * into two parts and insert the element between them.
+         * Drop positions are always at word boundaries (snapped during drag).
+         * We split the text node at the boundary and insert the marker between
+         * the two halves. No spacing manipulation needed since the split
+         * happens at existing whitespace gaps.
          *
          * @param {HTMLElement} marker - The marker element to move
-         * @param {{node: Text, offset: number}} target - Where to move it
+         * @param {{node: Text, offset: number}} target - Where to move it (word boundary)
          */
         function moveMarker(marker, target) {
             // Validate: we can only insert into text nodes
@@ -1164,33 +1161,29 @@
             newMarker.setAttribute('draggable', 'true');
             newMarker.textContent = pageNum;
 
-            // Get the text node we're splitting
+            // Split the text node at the word boundary
             const textNode = target.node;
             const offset = target.offset;
-            const text = textNode.textContent;
-
-            // Split text at offset
-            // Example: "Hello world" at offset 6 → "Hello " and "world"
-            const before = text.substring(0, offset);
-            const after = text.substring(offset);
-
             const parent = textNode.parentNode;
 
-            // Remove old marker from its current position
+            // Remove old marker first, then normalize its old parent
+            // to merge any leftover text nodes from previous insertions
+            var oldParent = marker.parentNode;
             marker.remove();
+            if (oldParent && oldParent !== parent) {
+                oldParent.normalize();
+            }
 
-            // Create new text nodes for before/after content (with spacing around marker)
-            const beforeNode = document.createTextNode(ensureTrailingSpace(before));
-            const afterNode = document.createTextNode(ensureLeadingSpace(after));
+            // If the target text node was removed by normalize (same parent),
+            // re-check validity
+            if (!textNode.isConnected) {
+                showToast('Drop position changed - try again', 'error');
+                return;
+            }
 
-            // Insert the three new nodes in place of the original text node
-            // Order: before text → marker → after text
-            parent.insertBefore(beforeNode, textNode);
-            parent.insertBefore(newMarker, textNode);
-            parent.insertBefore(afterNode, textNode);
-
-            // Remove the original unsplit text node
-            parent.removeChild(textNode);
+            // Split text node at word boundary and insert marker between halves
+            var afterNode = textNode.splitText(offset);
+            parent.insertBefore(newMarker, afterNode);
 
             // Attach drag handler to the new marker
             newMarker.addEventListener('mousedown', startDrag);
@@ -1383,9 +1376,15 @@
          */
         function clearWordHighlight() {
             if (highlightedWord) {
-                // Verify element is still in DOM before modifying
+                // Unwrap the highlight span back to a plain text node
                 if (highlightedWord.isConnected) {
-                    highlightedWord.classList.remove('word-highlight');
+                    var parent = highlightedWord.parentNode;
+                    while (highlightedWord.firstChild) {
+                        parent.insertBefore(highlightedWord.firstChild, highlightedWord);
+                    }
+                    parent.removeChild(highlightedWord);
+                    // Merge adjacent text nodes so the DOM stays clean
+                    parent.normalize();
                 }
                 highlightedWord = null;
             }
@@ -1569,23 +1568,15 @@
             newMarker.setAttribute('draggable', 'true');
             newMarker.textContent = pageNum;
 
-            // Get the text content from the wrapper
-            const wordText = wordWrapper.textContent;
-
             try {
-                // Replace wrapper with: text + space + marker + space
-                // Check if next sibling already has a leading space
-                const nextSibling = wordWrapper.nextSibling;
-                const nextHasSpace = nextSibling && nextSibling.nodeType === Node.TEXT_NODE &&
-                    nextSibling.textContent.startsWith(' ');
-
-                const textNode = document.createTextNode(ensureTrailingSpace(wordText));
-                parent.insertBefore(textNode, wordWrapper);
-                parent.insertBefore(newMarker, wordWrapper);
-                if (!nextHasSpace) {
-                    parent.insertBefore(document.createTextNode(' '), wordWrapper);
+                // Unwrap the word highlight back to text, then insert marker after it
+                while (wordWrapper.firstChild) {
+                    parent.insertBefore(wordWrapper.firstChild, wordWrapper);
                 }
+                // Insert marker right after the unwrapped word text
+                var insertBefore = wordWrapper.nextSibling;
                 parent.removeChild(wordWrapper);
+                parent.insertBefore(newMarker, insertBefore);
             } catch (err) {
                 console.error('[Add Mode] Failed to insert marker:', err);
                 showToast('Failed to add marker - DOM error', 'error');
@@ -1682,6 +1673,25 @@
 
                 marker.replaceWith(newMarker);
             });
+
+            // Clean up any leftover word-highlight spans (editor artifacts)
+            container.querySelectorAll('.word-highlight, [data-word-start]').forEach(function(span) {
+                var parent = span.parentNode;
+                while (span.firstChild) {
+                    parent.insertBefore(span.firstChild, span);
+                }
+                parent.removeChild(span);
+                parent.normalize();
+            });
+
+            // Collapse double spaces left by marker moves/deletions
+            var walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+            var textNode;
+            while ((textNode = walker.nextNode())) {
+                if (/  +/.test(textNode.textContent)) {
+                    textNode.textContent = textNode.textContent.replace(/  +/g, ' ');
+                }
+            }
 
             return { container: container, skippedMarkers: skippedMarkers };
         }
