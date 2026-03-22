@@ -1746,8 +1746,10 @@
 
             // Serialize document to HTML string, preserving original DOCTYPE exactly
             var serializer = new XMLSerializer();
-            var doctypeMatch = originalHTML.match(/^(\s*<!DOCTYPE[^>]*>\s*)/i);
             var serialized = serializer.serializeToString(originalDoc);
+            // XMLSerializer may emit its own DOCTYPE — strip it so we can use the original
+            serialized = serialized.replace(/^(\s*<!DOCTYPE[^>]*>\s*)/i, '');
+            var doctypeMatch = originalHTML.match(/^(\s*<!DOCTYPE[^>]*>\s*)/i);
             var output = doctypeMatch ? doctypeMatch[1] + serialized : serialized;
 
             // Trigger file download using Blob and temporary link
