@@ -501,6 +501,8 @@
         // STATE MANAGEMENT
         // ============================================================
 
+        /** @type {string} Original file name for download naming */
+        var originalFileName = '';
         /** @type {string} Original HTML content for preserving <head> during export */
         let originalHTML = '';
 
@@ -592,6 +594,7 @@
             const reader = new FileReader();
             reader.onload = function(e) {
                 originalHTML = e.target.result;  // Store for later export
+                originalFileName = file.name;   // Store for download naming
                 loadContent(originalHTML);
                 showToast('File loaded successfully', 'success');
             };
@@ -1749,7 +1752,7 @@
 
             // Trigger file download using Blob and temporary link
             var blob = new Blob([output], { type: 'text/html;charset=utf-8' });
-            var filename = 'corrected_' + formatTimestamp(new Date()) + '.html';
+            var filename = originalFileName.replace(/\.html?$/i, '') + '-paginated.html';
 
             var url = URL.createObjectURL(blob);
             var a = document.createElement('a');
