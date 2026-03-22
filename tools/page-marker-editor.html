@@ -1741,9 +1741,11 @@
                 originalDoc.body.appendChild(node.cloneNode(true));
             });
 
-            // Serialize document to HTML string
+            // Serialize document to HTML string, preserving original DOCTYPE exactly
             var serializer = new XMLSerializer();
-            var output = '<!DOCTYPE html>\n' + serializer.serializeToString(originalDoc);
+            var doctypeMatch = originalHTML.match(/^(\s*<!DOCTYPE[^>]*>\s*)/i);
+            var serialized = serializer.serializeToString(originalDoc);
+            var output = doctypeMatch ? doctypeMatch[1] + serialized : serialized;
 
             // Trigger file download using Blob and temporary link
             var blob = new Blob([output], { type: 'text/html;charset=utf-8' });
