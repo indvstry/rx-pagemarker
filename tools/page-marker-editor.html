@@ -651,7 +651,9 @@
             const markers = body.querySelectorAll('.page-number, span[role="note"]');
             let markerIndex = 0;
             markers.forEach(function(marker) {
-                const pageNum = marker.textContent.trim();
+                // Strip any "σελ. " prefix so data-page always stores the bare number
+                const rawText = marker.textContent.trim();
+                const pageNum = rawText.replace(/^σελ\.\s*/, '');
 
                 // Create new marker element with editor-specific attributes
                 const newMarker = document.createElement('span');
@@ -1675,6 +1677,28 @@
                 newMarker.textContent = 'σελ. ' + pageNum;
 
                 marker.replaceWith(newMarker);
+            });
+
+            // Ensure a single space exists before and after each marker.
+            // Done at export time (on the cloned DOM) so drag/drop never
+            // accumulates orphan spaces in the live editor.
+            container.querySelectorAll('.page-number').forEach(function(marker) {
+                var prev = marker.previousSibling;
+                var next = marker.nextSibling;
+
+                // Space before marker
+                if (prev && prev.nodeType === Node.TEXT_NODE) {
+                    if (prev.textContent.length > 0 && !prev.textContent.endsWith(' ')) {
+                        prev.textContent = prev.textContent + ' ';
+                    }
+                }
+
+                // Space after marker
+                if (next && next.nodeType === Node.TEXT_NODE) {
+                    if (next.textContent.length > 0 && !next.textContent.startsWith(' ')) {
+                        next.textContent = ' ' + next.textContent;
+                    }
+                }
             });
 
             // Clean up any leftover word-highlight spans (editor artifacts)
