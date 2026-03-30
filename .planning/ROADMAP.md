@@ -29,7 +29,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. Moving a marker leaves no orphaned tags, empty spans, or whitespace artifacts at the source location, and all surrounding HTML attributes and classes are preserved intact
   3. Exported HTML preserves all original document classes, attributes, and structure outside of marker elements — a diff of pre/post export shows only marker element changes
   4. Undo and redo restore the exact document state including all HTML classes and attributes — no validation artifacts bleed into history snapshots
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — Add EventBus, State, Markers namespaces; migrate 8 flat-scope globals; replace 3 inline marker createElement sites with Markers.createMarker factory
+- [ ] 01-02-PLAN.md — Create History, AutoSave, DragDrop namespaces; wire EventBus mutations; harden moveMarker normalize() invariant
+- [ ] 01-03-PLAN.md — Create AddMode, Export (with diff check), Toast, UI, FileLoader namespaces; wire Init; complete all EventBus wiring
 
 ### Phase 2: Sidebar Navigation
 **Goal**: Users can navigate a 200+ marker document via a clickable sidebar list and jump directly to any marker
@@ -80,7 +85,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Structural Refactoring | 0/TBD | Not started | - |
+| 1. Structural Refactoring | 0/3 | Not started | - |
 | 2. Sidebar Navigation | 0/TBD | Not started | - |
 | 3. Sequence Validation | 0/TBD | Not started | - |
 | 4. Click-to-Move | 0/TBD | Not started | - |
