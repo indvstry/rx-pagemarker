@@ -196,7 +196,25 @@ These markers enable EPUB page-list navigation, citation compatibility with prin
   - Content and structure remain identical, only formatting changes
   - Safe for EPUB generation; not suitable if exact byte-for-byte preservation is needed
 
-## Current Status (as of 2025-01-21)
+### Phase 12: PDF Splitting (2025-03-23)
+- **Purpose**: Extract page ranges from magazine PDFs for individual article processing
+- **Completely independent** from the page marking pipeline (must stay separate - see memory)
+- **CLI command**: `rx-pagemarker split` — thin wrapper over PyMuPDF
+  - `--start-page` / `--end-page`: page range (print pages if offset is set, otherwise PDF pages)
+  - `--page-offset`: offset between print and PDF page numbers (subtracted: `print_page - offset = pdf_page`)
+  - Auto-generates output filename with page range suffix
+  - Example: `rx-pagemarker split magazine.pdf --start-page 81 --end-page 95 --page-offset 76`
+- **Visual browser tool**: `tools/pdf-splitter.html`
+  - Single HTML file, no server, works in any modern browser
+  - Uses PDF.js (CDN) for page thumbnails + pdf-lib (CDN) for page extraction
+  - Same visual style as `tools/page-marker-editor.html`
+  - **Offset mapping**: Set "PDF page X = print page Y", auto-syncs content start zone
+  - **Zone marking**: Frontmatter/backmatter pages dimmed with red borders
+  - **Selection**: Click thumbnails, Shift+click for ranges, or type print page range
+  - **Download**: Client-side PDF creation, filename includes print page range
+- **Key design**: Offset is the **reverse** of `extract` — same value, but subtracted (user thinks in print pages, tool converts to PDF pages)
+
+## Current Status (as of 2025-03-23)
 
 ### Production Ready
 - ✅ Full CLI tool with professional packaging
@@ -217,6 +235,7 @@ These markers enable EPUB page-list navigation, citation compatibility with prin
 - ✅ **Sequential position tracking** - Handles duplicate snippets and multiple page breaks per paragraph
 - ✅ **Context matching** - Disambiguates duplicate snippets using surrounding words (`--context-words`)
 - ✅ **Visual marker editor** - Browser-based drag-and-drop tool for correcting marker positions
+- ✅ **PDF splitting** - CLI command + browser tool for extracting page ranges from magazine PDFs (independent from marking pipeline)
 
 ### Known Issues
 - **Fuzzy HTML matching performance**: Slow for large documents (several minutes for 50k+ word HTML files) - only affects `--fuzzy-match` flag, not the default workflow
@@ -790,3 +809,309 @@ The `--two-column` flag was designed for column-aware extraction but has issues:
   - Footnote numbers in HTML
   - Column reading order issues
   - Page headers (e.g., "KE/2025") not in HTML
+
+<!-- GSD:project-start source:PROJECT.md -->
+## Project
+
+**RX Page Marker**
+
+A Python CLI tool and browser-based visual editor for inserting page number markers into HTML files for EPUB3 generation. Part of the RX EPUB pipeline, it converts InDesign HTML exports into EPUB3 files with accurate page-list navigation. Used primarily for Greek legal magazines with complex two-column layouts.
+
+**Core Value:** Accurate page markers in EPUB files that match the print edition — enabling citation compatibility, page-list navigation, and accessibility for legal professionals.
+
+### Constraints
+
+- **Single-file constraint**: Editor must remain a single HTML file with no build step — this is a key design decision for portability and offline use
+- **No frameworks**: Vanilla JS only in the editor — no React, Vue, etc.
+- **Browser compatibility**: Must work in modern browsers (Chrome, Firefox, Safari)
+- **Backwards compatible**: Editor must continue to load existing marked HTML files without breaking
+<!-- GSD:project-end -->
+
+<!-- GSD:stack-start source:codebase/STACK.md -->
+## Technology Stack
+
+## Languages
+- Python 3.8+ (target: 3.8-3.12) - All backend/CLI code in `src/rx_pagemarker/`
+- HTML/CSS/JavaScript - Browser-based tools in `tools/page-marker-editor.html` and `tools/pdf-splitter.html`
+## Runtime
+- Python >= 3.8 (specified in `pyproject.toml` line 26)
+- Any modern browser for `tools/*.html` (no server required)
+- pip with setuptools build backend
+- Lockfile: Not present (no `pip.lock` or `Pipfile.lock`)
+- `requirements.txt` exists but only lists core deps (beautifulsoup4, lxml) - not comprehensive
+- Local `venv/` directory (gitignored)
+## Frameworks
+- Click >= 8.1.0 - CLI framework (`src/rx_pagemarker/cli.py`)
+- BeautifulSoup4 >= 4.12.0 - HTML parsing and DOM manipulation (`src/rx_pagemarker/marker.py`)
+- lxml >= 4.9.0 - XML/HTML parser backend for BeautifulSoup
+- PyMuPDF >= 1.23.0 - Primary PDF text extraction (`src/rx_pagemarker/pdf_extractor.py`)
+- pdfplumber >= 0.10.0 - Secondary PDF backend for complex layouts (`src/rx_pagemarker/pdf_extractor.py`)
+- rapidfuzz >= 3.0.0 - Fuzzy string matching for HTML correction (`src/rx_pagemarker/html_matcher.py`)
+- pytest >= 7.4.0 - Test runner (config in `pyproject.toml` lines 66-80)
+- pytest-cov >= 4.1.0 - Coverage reporting
+- black >= 23.0.0 - Code formatter (line-length: 88, config in `pyproject.toml` lines 109-124)
+- flake8 >= 6.0.0 - Linter
+- mypy >= 1.5.0 - Type checker (config in `pyproject.toml` lines 130-148)
+- isort (profile: "black") - Import sorter (config in `pyproject.toml` lines 153-157)
+- types-beautifulsoup4 >= 4.12.0 - Type stubs
+## Key Dependencies
+- `beautifulsoup4` - HTML DOM parsing, snippet matching, marker insertion
+- `lxml` - Fast HTML/XML parser backend (required by BeautifulSoup for production use)
+- `click` - CLI interface with commands: `mark`, `extract`, `validate`, `generate`, `split`
+- `PyMuPDF` (`fitz`) - Fast PDF text extraction, PDF page splitting. Imported conditionally with `HAS_PYMUPDF` flag
+- `pdfplumber` - Layout-aware PDF extraction for complex documents. Imported conditionally with `HAS_PDFPLUMBER` flag
+- `rapidfuzz` - Fuzzy matching for corrupted PDF text. Imported conditionally with `HAS_RAPIDFUZZ` flag
+- `json` - Snippet file I/O (JSON format throughout)
+- `re` - Regex for text normalization, pattern exclusion
+- `unicodedata` - Greek accent normalization
+- `importlib.resources` - Loading dictionary data files (`src/rx_pagemarker/data/greek_words.txt`)
+- `pathlib.Path` - All file path handling
+## Configuration
+- `pyproject.toml` - Single config file for packaging, pytest, coverage, black, mypy, isort
+- Build system: setuptools >= 61.0 with wheel
+- `src/` layout (`[tool.setuptools.packages.find] where = ["src"]`)
+- Package data: `py.typed` marker and `data/*.txt` dictionary files
+- CLI: `rx-pagemarker` command → `rx_pagemarker.cli:cli` (defined in `pyproject.toml` line 49)
+- Module: `python -m rx_pagemarker` → `src/rx_pagemarker/__main__.py`
+- No environment variables required
+- No `.env` files
+- All configuration via CLI flags
+## Installation
+## Platform Requirements
+- Python 3.8+ on any OS
+- No native compilation required (pure Python except C extensions in lxml/PyMuPDF)
+- Same as development - runs as CLI tool locally
+- No server deployment (CLI-only tool)
+- Browser tools (`tools/*.html`) run client-side, no backend needed
+<!-- GSD:stack-end -->
+
+<!-- GSD:conventions-start source:CONVENTIONS.md -->
+## Conventions
+
+## Naming Patterns
+- Use `snake_case.py` for all Python modules: `pdf_extractor.py`, `html_matcher.py`, `word_segmentation.py`
+- Test files mirror source files with `test_` prefix: `test_marker.py`, `test_pdf_extractor.py`, `test_template.py`
+- Special files: `__init__.py`, `__main__.py`, `cli.py`
+- Use `snake_case` for all functions and methods: `find_snippet_location()`, `create_page_marker()`, `_complete_partial_word()`
+- Private methods prefixed with single underscore: `_get_containers()`, `_normalize_word()`, `_dehyphenate()`, `_filter_production_metadata()`
+- No double-underscore name mangling used anywhere
+- Use `snake_case` for all variables: `snippet_words`, `page_references`, `html_text`
+- Instance tracking variables use underscore prefix: `self._last_insertion_container_idx`, `self._last_insertion_position`, `self._containers`
+- Constants use `UPPER_SNAKE_CASE`: `DEFAULT_EXCLUDE_PATTERNS`, `ROMAN_NUMERALS`, `HAS_PYMUPDF`, `HAS_PDFPLUMBER`
+- Use `PascalCase`: `PageMarkerInserter`, `PDFExtractor`, `HTMLMatcher`, `WordSegmenter`
+- Exception classes use `PascalCase` with `Error` suffix: `PDFExtractionError`, `MissingDependencyError`, `InvalidParameterError`, `HTMLMatcherError`
+- Use `typing` module types throughout: `Optional`, `List`, `Dict`, `Tuple`, `Union`, `Literal`, `Any`
+- `TYPE_CHECKING` guard used for heavy imports in `pdf_extractor.py` (lines 19-22)
+## Code Style
+- **Black** formatter with line length 88 (configured in `pyproject.toml` lines 109-124)
+- Target Python versions: 3.8 through 3.12
+- All source files use consistent Black-formatted style
+- **Flake8** (version >= 6.0.0, in dev dependencies)
+- No `.flake8` config file detected; uses defaults
+- **Mypy** configured in `pyproject.toml` (lines 130-148)
+- `check_untyped_defs = true` but `disallow_untyped_defs = false` (gradual typing)
+- `ignore_missing_imports = true` for third-party libraries
+- Test files exempt from `disallow_untyped_defs`
+- Type stubs installed: `types-beautifulsoup4`
+- **isort** configured with `profile = "black"` in `pyproject.toml` (lines 153-157)
+- `known_first_party = ["rx_pagemarker"]`
+- Line length matches Black: 88
+## Import Organization
+- No path aliases configured. All imports use relative imports within the package: `from . import __version__`, `from .marker import PageMarkerInserter`
+- Optional dependencies use try/except with availability flags:
+- `TYPE_CHECKING` guard for type-only imports of optional dependencies:
+## Error Handling
+- Each module defines its own base exception:
+- All custom exceptions inherit from `Exception` with `pass` body
+- Commands wrap logic in try/except, catching specific exceptions first, then generic `Exception`:
+- Use `sys.exit(1)` for fatal errors in `marker.py` (load failures)
+- Use `ValueError` for programmer errors (e.g., calling methods before loading data)
+- Use `warnings.warn()` for non-fatal degradation in `word_segmentation.py`
+## Logging
+- Success messages use check mark: `print(f"V Loaded HTML from {self.html_path}")`
+- Error messages use X mark: `print(f"X Error: HTML file not found: {self.html_path}")`
+- Info messages use info symbol: `print(f"  i Page {page_number}: Context disambiguation used")`
+- Warning messages use warning symbol: `print(f"  W Page {page_number}: Context score too low")`
+- CLI output uses `click.echo()` with `err=True` for errors
+- Statistics use formatted blocks with `=` separators:
+## Comments
+- Explain non-obvious algorithm choices (e.g., Jaccard weighting rationale in `marker.py` line 235)
+- Document workarounds and their reasoning
+- Explain "magic numbers" with inline comments (e.g., threshold values)
+- **Google style** docstrings on all public classes and methods
+- Include `Args:`, `Returns:`, `Raises:` sections
+- Module-level docstrings on every `.py` file
+- Example from `src/rx_pagemarker/marker.py`:
+- Used liberally to explain complex logic, especially in DOM traversal and PDF extraction
+- Explain "why" not "what" for non-trivial operations
+## Function Design
+- Use `Union[str, Path]` for file path parameters to accept both types
+- Use `Optional[X]` for parameters with `None` defaults
+- Use `Literal` for constrained string choices (e.g., `Literal["auto", "pymupdf", "pdfplumber"]`)
+- Use keyword arguments with defaults for configuration options
+- Heavy use of boolean flags for feature toggles (e.g., `inject_css`, `skip_footnotes`, `two_column`)
+- Use `bool` for success/failure operations (`insert_page_marker` returns `True`/`False`)
+- Use `Tuple` for multiple return values: `Tuple[Optional[NavigableString], Optional[int], int, int]`
+- Use `List[Dict]` for collection results (snippets)
+- Return `None` implicitly for void operations
+## Module Design
+- `__init__.py` exports `PageMarkerInserter` and `__version__` via `__all__`
+- Each module is self-contained with its own exception classes
+- Convenience functions provided alongside classes (e.g., `match_snippet()` in `html_matcher.py`, `segment_snippet()` in `word_segmentation.py`)
+- Only `__init__.py` acts as a barrel file; other modules import directly from submodules
+- Main classes follow an initialize-then-run pattern:
+- Statistics tracked via `self.stats: Dict[str, int]` dictionaries
+## CLI Argument Patterns
+- Group command: `@click.group()` on `cli()` function in `src/rx_pagemarker/cli.py`
+- Subcommands: `@cli.command()` decorators for `mark`, `generate`, `extract`, `split`, `validate`
+- Version: `@click.version_option(version=__version__)`
+- Positional arguments use `click.Path(exists=True, path_type=Path)` for input files
+- Output files use `click.Path(path_type=Path)` without `exists=True`
+- Optional positional args use `required=False`
+- Boolean flags use `is_flag=True` with descriptive help text
+- Short aliases for common options: `-v` (verbose), `-w` (words), `-s` (strategy/start-page), `-b` (backend), `-l` (language), `-x` (exclude-pattern), `-h` (html), `-d` (show-duplicates)
+- Use `\b` in docstrings to prevent Click from reflowing text (preserves formatting)
+- Include `Examples:` section in every command's docstring
+- Arguments section documents each positional arg
+## Greek Language Handling
+- NFD decomposition for accent removal in comparisons (`src/rx_pagemarker/marker.py` `_normalize_word()`)
+- NFC normalization for text matching (`src/rx_pagemarker/html_matcher.py` `_normalize_text()`)
+- All file I/O uses explicit `encoding="utf-8"`
+- JSON output uses `ensure_ascii=False` to preserve Greek characters
+- Unicode-aware word boundary handling via regex and character category checks
+- Dictionary-based word segmentation for Greek (`src/rx_pagemarker/word_segmentation.py`)
+- Greek morphology expansion for word forms
+## HTML/DOM Manipulation Patterns
+- Container discovery: Find all block-level elements, filter to leaf containers only (no nested containers)
+- Container types: `p`, `div`, `td`, `th`, `li`, `dd`, `dt`, `h1`-`h6`, `blockquote`, `aside`, `article`, `section`
+- Text node walking: Iterate `container.descendants`, check `isinstance(node, NavigableString)`, skip script/style/head parents
+- Text extraction: `container.get_text()` for combined text, character-level position tracking across nodes
+- Use `soup.decode(formatter="minimal")` to preserve original whitespace and attributes
+- CSS injection via `soup.new_tag("style")` appended to `<head>`
+## File I/O Conventions
+- Always use `Path` objects (from `pathlib`) for file paths
+- Accept `Union[str, Path]` in public APIs, convert to `Path` internally
+- Use `with open(..., "r", encoding="utf-8") as f:` for all text file reads
+- Use `with open(..., "w", encoding="utf-8") as f:` for all text file writes
+- JSON output: `json.dump(data, f, indent=2, ensure_ascii=False)`
+<!-- GSD:conventions-end -->
+
+<!-- GSD:architecture-start source:ARCHITECTURE.md -->
+## Architecture
+
+## Pattern Overview
+- Sequential data pipeline: PDF -> JSON snippets -> marked HTML
+- Click-based CLI as the single entry point for all commands
+- Class-based modules with clear single responsibilities
+- Browser-based tools (standalone HTML files) for visual editing, completely decoupled from the Python pipeline
+- Optional dependencies pattern: PDF extraction libraries are optional extras (`[pdf]`)
+- File I/O as the inter-stage data contract (JSON files between extract and mark stages)
+## Layers
+- Purpose: Parse arguments, validate inputs, orchestrate module calls, handle errors
+- Contains: 5 Click commands (`mark`, `generate`, `extract`, `split`, `validate`)
+- Depends on: `marker.py`, `pdf_extractor.py`, `template.py`
+- Used by: End users via `rx-pagemarker` command or `python -m rx_pagemarker`
+- Purpose: Extract text snippets from PDF pages, with context for disambiguation
+- Contains: `PDFExtractor` class, validation functions, custom exceptions
+- Depends on: `word_segmentation.py`, `html_matcher.py` (optional), PyMuPDF/pdfplumber (optional)
+- Used by: `cli.py` (extract command)
+- Purpose: Insert page marker `<span>` elements into HTML at snippet locations
+- Contains: `PageMarkerInserter` class with DOM-aware insertion logic
+- Depends on: BeautifulSoup4
+- Used by: `cli.py` (mark command)
+- Purpose: Fuzzy-match PDF snippets against HTML to fix word boundaries
+- Contains: `HTMLMatcher` class using rapidfuzz sliding-window matching
+- Depends on: rapidfuzz (optional)
+- Used by: `pdf_extractor.py` when `--fuzzy-match` is enabled
+- Purpose: Reconstruct word boundaries in PDFs with missing spaces
+- Contains: `WordSegmenter` class with dynamic-programming dictionary-based segmentation
+- Depends on: `data/greek_words.txt` (frequency dictionary loaded via importlib.resources)
+- Used by: `pdf_extractor.py` when `--segment-words` is enabled
+- Purpose: Generate placeholder JSON files for manual snippet entry
+- Contains: `generate_template()` function
+- Depends on: Nothing (stdlib only)
+- Used by: `cli.py` (generate command)
+- Purpose: Browser-based editing and PDF splitting for non-technical users
+- Contains: `page-marker-editor.html` (1854 lines), `pdf-splitter.html` (929 lines)
+- Depends on: Nothing from Python codebase (uses PDF.js and pdf-lib from CDN)
+- Used by: End users directly in browser
+- **Completely independent** from the Python pipeline
+## Data Flow
+```
+```
+- No persistent state between CLI invocations
+- Inter-stage state passed via JSON files on disk
+- Within `PageMarkerInserter`: sequential position tracked via `_last_insertion_container_idx` and `_last_insertion_position` instance variables
+- Within `PDFExtractor`: extraction stats tracked via `self.stats` dict
+## Key Abstractions
+- Purpose: Encapsulates the full mark workflow (load -> process -> save)
+- Pattern: Constructor takes paths, `.run()` executes full pipeline
+- Key methods: `find_snippet_location()`, `insert_page_marker()`, `create_page_marker()`
+- Maintains container cache (`_get_containers()`) for efficient repeated searches
+- Purpose: Encapsulates PDF extraction with configurable backends and strategies
+- Pattern: Constructor takes all config, `.extract()` returns data, `.save_to_json()` persists
+- Backend abstraction: `extract_with_pymupdf()` and `extract_with_pdfplumber()` share the same interface
+- Strategy pattern: `end_of_page`, `beginning_of_page`, `bottom_visual` select different text regions
+- Purpose: Reconstruct word boundaries using dictionary + dynamic programming
+- Pattern: Constructor loads dictionary, `.segment_text()` returns segmented text + confidence
+- Purpose: Fuzzy-match corrupted PDF text against clean HTML
+- Pattern: Constructor loads HTML, `.find_match()` returns best match + confidence
+```json
+```
+## Entry Points
+- Location: `src/rx_pagemarker/cli.py` (function `cli`)
+- Registered as: `rx-pagemarker` console script in `pyproject.toml` line 49
+- Also: `python -m rx_pagemarker` via `src/rx_pagemarker/__main__.py`
+| Command | Purpose | Key Class/Function |
+|---------|---------|-------------------|
+| `mark` | Insert markers into HTML | `PageMarkerInserter.run()` |
+| `extract` | Extract snippets from PDF | `PDFExtractor.extract()` |
+| `generate` | Create template JSON | `generate_template()` |
+| `validate` | Check snippet quality | `validate_snippets()` |
+| `split` | Extract PDF page range | Direct PyMuPDF calls in CLI |
+- `tools/page-marker-editor.html` - Visual drag-and-drop marker editor
+- `tools/pdf-splitter.html` - Visual PDF page range extractor
+## Error Handling
+```
+```
+```
+```
+- Each command wraps its body in try/except
+- Catches specific exceptions first (MissingDependencyError, PDFNotFoundError, etc.)
+- Falls back to generic Exception catch
+- All errors: `click.echo(message, err=True)` then `sys.exit(1)`
+- `load_html()` and `load_page_references()` call `sys.exit(1)` directly on failure
+- `find_snippet_location()` returns `(None, None, -1, 0)` sentinel on not-found
+- `insert_page_marker()` returns `bool` success/failure, tracks failures in `self.failed_pages`
+## Cross-Cutting Concerns
+- `✓` for success
+- `✗` for failure
+- `⚠` for warnings
+- `ℹ` for info
+- `marker.py`: `_normalize_word()` strips accents for Jaccard similarity
+- `word_segmentation.py`: NFC normalization for dictionary matching
+- `html_matcher.py`: NFD normalization + dash removal for fuzzy matching
+- `pdf_extractor.py`: Dehyphenation, metadata filtering, word completion
+```python
+```
+<!-- GSD:architecture-end -->
+
+<!-- GSD:workflow-start source:GSD defaults -->
+## GSD Workflow Enforcement
+
+Before using Edit, Write, or other file-changing tools, start work through a GSD command so planning artifacts and execution context stay in sync.
+
+Use these entry points:
+- `/gsd:quick` for small fixes, doc updates, and ad-hoc tasks
+- `/gsd:debug` for investigation and bug fixing
+- `/gsd:execute-phase` for planned phase work
+
+Do not make direct repo edits outside a GSD workflow unless the user explicitly asks to bypass it.
+<!-- GSD:workflow-end -->
+
+<!-- GSD:profile-start -->
+## Developer Profile
+
+> Profile not yet configured. Run `/gsd:profile-user` to generate your developer profile.
+> This section is managed by `generate-claude-profile` -- do not edit manually.
+<!-- GSD:profile-end -->
