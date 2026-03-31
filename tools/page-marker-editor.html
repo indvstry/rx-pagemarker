@@ -719,6 +719,285 @@
             return { save: save, clear: clear, checkForSavedState: checkForSavedState };
         })();
 
+        // ============================================================
+        // SECTION 6: DragDrop
+        // ============================================================
+        var DragDrop = (function() {
+            var _editor = null;
+
+            function init(editorEl) {
+                _editor = editorEl;
+            }
+
+            function _attachListeners() {
+                var markers = _editor.querySelectorAll('.page-marker');
+                markers.forEach(function(marker) {
+                    marker.addEventListener('mousedown', startDrag);
+                });
+            }
+
+            /**
+             * Begin dragging a marker
+             * Sets up global mousemove/mouseup listeners for the drag operation
+             */
+            function startDrag(e) {
+                if (e.button !== 0) return;
+                State.set('draggedMarker', e.target);
+                State.draggedMarker.classList.add('dragging');
+                document.addEventListener('mousemove', onDrag);
+                document.addEventListener('mouseup', endDrag);
+                e.preventDefault();
+            }
+
+            /**
+             * Handle mouse movement during drag
+             */
+            function onDrag(e) {
+                if (!State.draggedMarker) return;
+                var pos = getCaretPosition(e.clientX, e.clientY);
+                if (pos && _editor.contains(pos.node)) {
+                    var node = pos.node;
+                    var insideMarker = false;
+                    while (node && node !== _editor) {
+                        if (node.classList && node.classList.contains('page-marker')) {
+                            insideMarker = true;
+                            break;
+                        }
+                        node = node.parentNode;
+                    }
+                    if (!insideMarker && pos.node.nodeType === Node.TEXT_NODE) {
+                        var snapped = snapToWordBoundary(pos.node, pos.offset);
+                        State.set('dropTarget', snapped);
+                        showDropCursor(snapped);
+                        return;
+                    }
+                }
+                State.set('dropTarget', null);
+                hideDropCursor();
+            }
+
+            /**
+             * End the drag operation
+             */
+            function endDrag(e) {
+                document.removeEventListener('mousemove', onDrag);
+                document.removeEventListener('mouseup', endDrag);
+                hideDropCursor();
+                if (!State.draggedMarker) return;
+                State.draggedMarker.classList.remove('dragging');
+                if (State.dropTarget && State.dropTarget.node) {
+                    DragDrop.moveMarker(State.draggedMarker, State.dropTarget);
+                    EventBus.emit('markers:moved', { marker: State.draggedMarker });
+                }
+                State.set('draggedMarker', null);
+                State.set('dropTarget', null);
+            }
+
+            /**
+             * Snap a caret position to the nearest word boundary.
+             */
+            function snapToWordBoundary(textNode, offset) {
+                var text = textNode.textContent;
+                if (offset >= text.length || /\s/.test(text[offset])) {
+                    return { node: textNode, offset: offset };
+                }
+                var boundaries = findWordBoundaries(text, offset);
+                var distToStart = offset - boundaries.start;
+                var distToEnd = boundaries.end - offset;
+                var snappedOffset = distToEnd <= distToStart ? boundaries.end : boundaries.start;
+                return { node: textNode, offset: snappedOffset };
+            }
+
+            /**
+             * Find word boundaries at a text position
+             */
+            function findWordBoundaries(text, offset) {
+                var start = offset;
+                while (start > 0 && !/\s/.test(text[start - 1])) { start--; }
+                var end = offset;
+                while (end < text.length && !/\s/.test(text[end])) { end++; }
+                return { start: start, end: end };
+            }
+
+            /**
+             * Get the text position (node + offset) at screen coordinates
+             */
+            function getCaretPosition(x, y) {
+                var range;
+                if (document.caretPositionFromPoint) {
+                    var pos = document.caretPositionFromPoint(x, y);
+                    if (pos) { return { node: pos.offsetNode, offset: pos.offset }; }
+                } else if (document.caretRangeFromPoint) {
+                    range = document.caretRangeFromPoint(x, y);
+                    if (range) { return { node: range.startContainer, offset: range.startOffset }; }
+                }
+                return null;
+            }
+
+            /**
+             * Show the visual drop cursor at a text position
+             */
+            function showDropCursor(pos) {
+                var dropCursorEl = document.getElementById('drop-cursor');
+                if (pos.node.nodeType !== Node.TEXT_NODE) {
+                    hideDropCursor();
+                    return;
+                }
+                var range = document.createRange();
+                range.setStart(pos.node, pos.offset);
+                range.setEnd(pos.node, pos.offset);
+                var rect = range.getBoundingClientRect();
+                dropCursorEl.style.left = rect.left + 'px';
+                dropCursorEl.style.top = rect.top + 'px';
+                dropCursorEl.style.height = '20px';
+                dropCursorEl.classList.add('visible');
+            }
+
+            /**
+             * Hide the visual drop cursor
+             */
+            function hideDropCursor() {
+                var dropCursorEl = document.getElementById('drop-cursor');
+                dropCursorEl.classList.remove('visible');
+            }
+
+            /**
+             * Move a marker to a new position in the document
+             *
+             * Hardened: oldParent.normalize() is called unconditionally after
+             * marker.remove() — no (oldParent !== parent) guard — ensuring no
+             * orphaned text nodes are left in the old parent.
+             */
+            function moveMarker(marker, target) {
+                if (!target.node || target.node.nodeType !== Node.TEXT_NODE) {
+                    showToast('Invalid drop position', 'error');
+                    return;
+                }
+
+                var pageNum = marker.getAttribute('data-page');
+                var markerId = marker.getAttribute('data-id');
+                var newMarker = Markers.createMarker(pageNum, markerId);
+
+                var textNode = target.node;
+                var offset = target.offset;
+                var parent = textNode.parentNode;
+
+                // Remove old marker and unconditionally normalize old parent
+                var oldParent = marker.parentNode;
+                marker.remove();
+                if (oldParent) {
+                    oldParent.normalize();  // Always — merges adjacent text nodes left by removal
+                }
+
+                // If normalize() merged the target text node (same parent case), bail
+                if (!textNode.isConnected) {
+                    showToast('Drop position changed - try again', 'error');
+                    return;
+                }
+
+                var afterNode = textNode.splitText(offset);
+                parent.insertBefore(newMarker, afterNode);
+
+                // Attach listeners (mousedown only — dblclick attached by Markers.setupListeners via history:restored)
+                newMarker.addEventListener('mousedown', DragDrop.startDrag);
+
+                showToast('Marker ' + pageNum + ' moved', 'success');
+            }
+
+            // Re-attach drag listeners after undo/redo restores DOM
+            EventBus.on('history:restored', _attachListeners);
+
+            return {
+                init: init,
+                startDrag: startDrag,
+                moveMarker: moveMarker,
+                hideDropCursor: hideDropCursor,
+                attachListeners: _attachListeners
+            };
+        })();
+
+        // history:restored — second subscriber: re-attach dblclick (edit) listeners
+        EventBus.on('history:restored', function() {
+            Markers.setupListeners(document.getElementById('editor'));
+        });
+
+        // Extend Markers namespace with edit/delete/update/setupListeners
+        Markers.editMarker = function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            var marker = e.target;
+            while (marker && !marker.classList.contains('page-marker')) {
+                marker = marker.parentElement;
+            }
+
+            if (!marker) {
+                console.error('[Edit] Double-click event target is not a marker');
+                return;
+            }
+
+            var currentPage = marker.getAttribute('data-page');
+            if (currentPage === null) {
+                console.warn('[Edit] Marker missing data-page attribute');
+                showToast('Marker is corrupted - cannot edit', 'error');
+                return;
+            }
+
+            var newPage = prompt('Edit page number (leave empty to delete):', currentPage);
+            if (newPage === null) return;
+
+            var trimmedPage = newPage.trim();
+            if (trimmedPage === '') {
+                Markers.deleteMarker(marker);
+            } else if (trimmedPage !== currentPage) {
+                Markers.updateMarkerNumber(marker, trimmedPage);
+            }
+        };
+
+        Markers.deleteMarker = function(marker) {
+            if (!marker) {
+                console.error('[Edit] Cannot delete marker - element is null');
+                showToast('Failed to delete marker', 'error');
+                return;
+            }
+
+            var pageNum = marker.getAttribute('data-page') || '?';
+
+            if (!marker.isConnected) {
+                console.warn('[Edit] Marker already removed from DOM');
+                showToast('Marker already deleted', 'success');
+                return;
+            }
+
+            marker.remove();
+
+            EventBus.emit('markers:deleted', { pageNum: pageNum });
+            showToast('Deleted marker ' + pageNum, 'success');
+        };
+
+        Markers.updateMarkerNumber = function(marker, newPage) {
+            if (!marker || !marker.isConnected) {
+                console.error('[Edit] Cannot update marker - element invalid or detached');
+                showToast('Failed to update marker', 'error');
+                return;
+            }
+
+            var oldPage = marker.getAttribute('data-page') || '?';
+            marker.setAttribute('data-page', newPage);
+            marker.textContent = newPage;
+
+            EventBus.emit('markers:updated', { marker: marker, oldPage: oldPage });
+            showToast('Updated marker ' + oldPage + ' \u2192 ' + newPage, 'success');
+        };
+
+        Markers.setupListeners = function(editorEl) {
+            var markers = editorEl.querySelectorAll('.page-marker');
+            markers.forEach(function(marker) {
+                marker.addEventListener('mousedown', DragDrop.startDrag);
+                marker.addEventListener('dblclick', Markers.editMarker);
+            });
+        };
+
         /**
          * Page Marker Editor - Visual drag-and-drop editor for EPUB page markers
          *
@@ -893,388 +1172,13 @@
             // Initialize history with current state as the starting point
             // This enables undo back to the original loaded state
             History.reset(editor);
+            DragDrop.init(editor);
+            Markers.setupListeners(editor);
             UI.updateStats();
-            setupMarkerDragging();
 
             downloadBtn.disabled = false;
             copyBodyBtn.disabled = false;
             addModeBtn.disabled = false;
-        }
-
-        // ============================================================
-        // DRAG AND DROP SYSTEM
-        // ============================================================
-        //
-        // We use a custom mouse event-based drag system instead of the HTML5
-        // Drag and Drop API. This provides better control over text positioning.
-        //
-        // Flow:
-        // 1. mousedown on marker → startDrag() captures the marker
-        // 2. mousemove → onDrag() updates drop cursor position
-        // 3. mouseup → endDrag() moves marker to drop position
-        //
-        // Key insight: We never modify the DOM during dragging. Instead, we
-        // use a CSS-positioned cursor element (#drop-cursor) to show where
-        // the marker will land. DOM changes only happen on drop.
-        // ============================================================
-
-        /**
-         * Attach event listeners to all markers in the editor
-         * Called after loading content or restoring from history
-         */
-        function setupMarkerDragging() {
-            const markers = editor.querySelectorAll('.page-marker');
-            markers.forEach(function(marker) {
-                marker.addEventListener('mousedown', startDrag);
-                marker.addEventListener('dblclick', editMarker);
-            });
-        }
-
-        /**
-         * Handle double-click on a marker to edit or delete it
-         *
-         * @param {MouseEvent} e - The dblclick event on a marker
-         */
-        function editMarker(e) {
-            e.preventDefault();
-            e.stopPropagation();
-
-            // Ensure we have the marker element (handle event bubbling)
-            let marker = e.target;
-            while (marker && !marker.classList.contains('page-marker')) {
-                marker = marker.parentElement;
-            }
-
-            if (!marker) {
-                console.error('[Edit] Double-click event target is not a marker');
-                return;
-            }
-
-            const currentPage = marker.getAttribute('data-page');
-            if (currentPage === null) {
-                console.warn('[Edit] Marker missing data-page attribute');
-                showToast('Marker is corrupted - cannot edit', 'error');
-                return;
-            }
-
-            // Prompt with current value; hint that empty = delete
-            const newPage = prompt(
-                'Edit page number (leave empty to delete):',
-                currentPage
-            );
-
-            // User cancelled
-            if (newPage === null) return;
-
-            const trimmedPage = newPage.trim();
-
-            if (trimmedPage === '') {
-                // Delete the marker
-                deleteMarker(marker);
-            } else if (trimmedPage !== currentPage) {
-                // Update the marker
-                updateMarkerNumber(marker, trimmedPage);
-            }
-            // If same value, do nothing
-        }
-
-        /**
-         * Update a marker's page number
-         *
-         * @param {HTMLElement} marker - The marker to update
-         * @param {string} newPage - The new page number
-         */
-        function updateMarkerNumber(marker, newPage) {
-            if (!marker || !marker.isConnected) {
-                console.error('[Edit] Cannot update marker - element invalid or detached');
-                showToast('Failed to update marker', 'error');
-                return;
-            }
-
-            const oldPage = marker.getAttribute('data-page') || '?';
-            marker.setAttribute('data-page', newPage);
-            marker.textContent = newPage;
-
-            EventBus.emit('markers:updated', { marker: marker, oldPage: oldPage });
-            showToast('Updated marker ' + oldPage + ' → ' + newPage, 'success');
-        }
-
-        /**
-         * Delete a marker from the document
-         *
-         * @param {HTMLElement} marker - The marker to delete
-         */
-        function deleteMarker(marker) {
-            if (!marker) {
-                console.error('[Edit] Cannot delete marker - element is null');
-                showToast('Failed to delete marker', 'error');
-                return;
-            }
-
-            const pageNum = marker.getAttribute('data-page') || '?';
-
-            if (!marker.isConnected) {
-                console.warn('[Edit] Marker already removed from DOM');
-                showToast('Marker already deleted', 'success');
-                return;
-            }
-
-            marker.remove();
-
-            EventBus.emit('markers:deleted', { pageNum: pageNum });
-            showToast('Deleted marker ' + pageNum, 'success');
-        }
-
-        /**
-         * Begin dragging a marker
-         * Sets up global mousemove/mouseup listeners for the drag operation
-         *
-         * @param {MouseEvent} e - The mousedown event on a marker
-         */
-        function startDrag(e) {
-            // Only respond to left mouse button
-            if (e.button !== 0) return;
-
-            // Store reference to the marker being dragged
-            State.set('draggedMarker', e.target);
-            State.draggedMarker.classList.add('dragging');  // Visual feedback (opacity)
-
-            // Attach listeners to document (not marker) to track mouse everywhere
-            document.addEventListener('mousemove', onDrag);
-            document.addEventListener('mouseup', endDrag);
-
-            // Prevent text selection while dragging
-            e.preventDefault();
-        }
-
-        /**
-         * Handle mouse movement during drag
-         * Updates the visual drop cursor position based on mouse coordinates.
-         * Snaps to the nearest word boundary so markers always land between words.
-         *
-         * @param {MouseEvent} e - The mousemove event
-         */
-        function onDrag(e) {
-            if (!State.draggedMarker) return;
-
-            // Get the text position under the cursor
-            const pos = getCaretPosition(e.clientX, e.clientY);
-
-            if (pos && editor.contains(pos.node)) {
-                // Walk up the DOM tree to check if we're inside another marker
-                // We don't want to allow dropping a marker inside itself or another marker
-                let node = pos.node;
-                let insideMarker = false;
-                while (node && node !== editor) {
-                    if (node.classList && node.classList.contains('page-marker')) {
-                        insideMarker = true;
-                        break;
-                    }
-                    node = node.parentNode;
-                }
-
-                // Valid drop target: inside editor, not inside a marker, text node only
-                if (!insideMarker && pos.node.nodeType === Node.TEXT_NODE) {
-                    // Snap to nearest word boundary
-                    var snapped = snapToWordBoundary(pos.node, pos.offset);
-                    State.set('dropTarget', snapped);
-                    showDropCursor(snapped);
-                    return;
-                }
-            }
-
-            // Invalid position - hide cursor and clear target
-            State.set('dropTarget', null);
-            hideDropCursor();
-        }
-
-        /**
-         * Snap a caret position to the nearest word boundary.
-         * Returns a position at a whitespace gap between words.
-         *
-         * @param {Text} textNode - The text node
-         * @param {number} offset - Raw caret offset
-         * @returns {{node: Text, offset: number}} Snapped position
-         */
-        function snapToWordBoundary(textNode, offset) {
-            var text = textNode.textContent;
-
-            // If already on whitespace, stay there
-            if (offset >= text.length || /\s/.test(text[offset])) {
-                return { node: textNode, offset: offset };
-            }
-
-            // Find the word boundaries around the cursor
-            var boundaries = findWordBoundaries(text, offset);
-
-            // Snap to whichever boundary is closer (start or end of the word)
-            var distToStart = offset - boundaries.start;
-            var distToEnd = boundaries.end - offset;
-
-            var snappedOffset = distToEnd <= distToStart ? boundaries.end : boundaries.start;
-            return { node: textNode, offset: snappedOffset };
-        }
-
-        /**
-         * End the drag operation
-         * If there's a valid drop target, moves the marker there
-         *
-         * @param {MouseEvent} e - The mouseup event
-         */
-        function endDrag(e) {
-            // Clean up event listeners
-            document.removeEventListener('mousemove', onDrag);
-            document.removeEventListener('mouseup', endDrag);
-
-            hideDropCursor();
-
-            if (!State.draggedMarker) return;
-
-            State.draggedMarker.classList.remove('dragging');
-
-            // Move marker if we have a valid drop target
-            if (State.dropTarget && State.dropTarget.node) {
-                moveMarker(State.draggedMarker, State.dropTarget);
-            }
-
-            // Reset drag state
-            State.set('draggedMarker', null);
-            State.set('dropTarget', null);
-        }
-
-        /**
-         * Get the text position (node + offset) at screen coordinates
-         *
-         * This is the key function that enables precise text positioning.
-         * It uses browser APIs to find the exact character position under the cursor.
-         *
-         * Browser support:
-         * - Firefox: document.caretPositionFromPoint() - returns CaretPosition
-         * - Chrome/Safari: document.caretRangeFromPoint() - returns Range
-         *
-         * @param {number} x - Screen X coordinate
-         * @param {number} y - Screen Y coordinate
-         * @returns {{node: Node, offset: number}|null} Position info or null if not found
-         */
-        function getCaretPosition(x, y) {
-            let range;
-
-            // Firefox uses caretPositionFromPoint
-            if (document.caretPositionFromPoint) {
-                const pos = document.caretPositionFromPoint(x, y);
-                if (pos) {
-                    return { node: pos.offsetNode, offset: pos.offset };
-                }
-            }
-            // Chrome/Safari use caretRangeFromPoint
-            else if (document.caretRangeFromPoint) {
-                range = document.caretRangeFromPoint(x, y);
-                if (range) {
-                    return { node: range.startContainer, offset: range.startOffset };
-                }
-            }
-
-            return null;
-        }
-
-        /**
-         * Show the visual drop cursor at a text position
-         *
-         * The cursor is a CSS-positioned element that floats above the content.
-         * We calculate its position by creating a zero-width Range at the target
-         * position and getting its bounding rectangle.
-         *
-         * Why not just insert an element? Inserting/removing DOM nodes during
-         * drag causes layout thrashing and visual glitches. A positioned element
-         * outside the content flow is much smoother.
-         *
-         * @param {{node: Node, offset: number}} pos - The target position
-         */
-        function showDropCursor(pos) {
-            // Only show cursor for text nodes
-            if (pos.node.nodeType !== Node.TEXT_NODE) {
-                hideDropCursor();
-                return;
-            }
-
-            // Create a zero-width Range to get the caret position's coordinates
-            const range = document.createRange();
-            range.setStart(pos.node, pos.offset);
-            range.setEnd(pos.node, pos.offset);
-
-            // getBoundingClientRect() gives us screen coordinates
-            const rect = range.getBoundingClientRect();
-
-            // Position the cursor element
-            dropCursor.style.left = rect.left + 'px';
-            dropCursor.style.top = rect.top + 'px';
-            dropCursor.style.height = '20px';
-            dropCursor.classList.add('visible');
-        }
-
-        /**
-         * Hide the visual drop cursor
-         */
-        function hideDropCursor() {
-            dropCursor.classList.remove('visible');
-        }
-
-        /**
-         * Move a marker to a new position in the document
-         *
-         * Drop positions are always at word boundaries (snapped during drag).
-         * We split the text node at the boundary and insert the marker between
-         * the two halves. No spacing manipulation needed since the split
-         * happens at existing whitespace gaps.
-         *
-         * @param {HTMLElement} marker - The marker element to move
-         * @param {{node: Text, offset: number}} target - Where to move it (word boundary)
-         */
-        function moveMarker(marker, target) {
-            // Validate: we can only insert into text nodes
-            if (!target.node || target.node.nodeType !== Node.TEXT_NODE) {
-                showToast('Invalid drop position', 'error');
-                return;
-            }
-
-            // Preserve marker attributes for the new element
-            const pageNum = marker.getAttribute('data-page');
-            const markerId = marker.getAttribute('data-id');
-
-            // Create new marker element
-            const newMarker = Markers.createMarker(pageNum, markerId);
-
-            // Split the text node at the word boundary
-            const textNode = target.node;
-            const offset = target.offset;
-            const parent = textNode.parentNode;
-
-            // Remove old marker first, then normalize its old parent
-            // to merge any leftover text nodes from previous insertions
-            var oldParent = marker.parentNode;
-            marker.remove();
-            if (oldParent && oldParent !== parent) {
-                oldParent.normalize();
-            }
-
-            // If the target text node was removed by normalize (same parent),
-            // re-check validity
-            if (!textNode.isConnected) {
-                showToast('Drop position changed - try again', 'error');
-                return;
-            }
-
-            // Split text node at word boundary and insert marker between halves
-            var afterNode = textNode.splitText(offset);
-            parent.insertBefore(newMarker, afterNode);
-
-            // Attach drag handler to the new marker
-            newMarker.addEventListener('mousedown', startDrag);
-            newMarker.addEventListener('dblclick', editMarker);
-
-            // Notify via EventBus — History will capture the state change
-            EventBus.emit('markers:moved', { marker: newMarker });
-            showToast('Marker ' + pageNum + ' moved', 'success');
         }
 
         // ============================================================
@@ -1538,9 +1442,9 @@
                 return;
             }
 
-            // Attach drag handler
-            newMarker.addEventListener('mousedown', startDrag);
-            newMarker.addEventListener('dblclick', editMarker);
+            // Attach drag and edit handlers
+            newMarker.addEventListener('mousedown', DragDrop.startDrag);
+            newMarker.addEventListener('dblclick', Markers.editMarker);
 
             // Clear highlight reference
             State.set('highlightedWord', null);
