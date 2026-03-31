@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-structural-refactoring/01-01-PLAN.md
-last_updated: "2026-03-31T13:22:27.370Z"
+stopped_at: Completed 01-structural-refactoring/01-02-PLAN.md
+last_updated: "2026-03-31T13:36:23.876Z"
 last_activity: 2026-03-31
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-03-30)
 ## Current Position
 
 Phase: 01 (structural-refactoring) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-03-31
 
@@ -53,6 +53,7 @@ Progress: [░░░░░░░░░░] 0%
 
 *Updated after each plan completion*
 | Phase 01-structural-refactoring P01 | 323s | 2 tasks | 1 files |
+| Phase 01-structural-refactoring P02 | 31538776 | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -66,6 +67,8 @@ Recent decisions affecting current work:
 - Roadmap: Sidebar (Phase 2) precedes Validation (Phase 3) — validation icons have no display surface until the sidebar exists.
 - [Phase 01-structural-refactoring]: EventBus IIFE keeps listeners private; State.set() emits state:changed for future reactive wiring in Plans 02-03
 - [Phase 01-structural-refactoring]: Markers is a plain object (no IIFE) since it has no private state; createMarker factory consolidates 3 of 4 marker creation sites
+- [Phase 01-structural-refactoring]: saveState() call sites replaced with EventBus.emit before function deletion to keep app functional between tasks
+- [Phase 01-structural-refactoring]: getCaretPosition/findWordBoundaries kept at flat-scope alongside DragDrop private copies until Plan 03 creates AddMode namespace
 
 ### Pending Todos
 
@@ -78,6 +81,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-31T13:22:27.366Z
-Stopped at: Completed 01-structural-refactoring/01-01-PLAN.md
+Last session: 2026-03-31T13:36:23.873Z
+Stopped at: Completed 01-structural-refactoring/01-02-PLAN.md
 Resume file: None

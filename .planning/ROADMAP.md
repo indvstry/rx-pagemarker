@@ -33,7 +33,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 Plans:
 - [x] 01-01-PLAN.md — Add EventBus, State, Markers namespaces; migrate 8 flat-scope globals; replace 3 inline marker createElement sites with Markers.createMarker factory
-- [ ] 01-02-PLAN.md — Create History, AutoSave, DragDrop namespaces; wire EventBus mutations; harden moveMarker normalize() invariant
+- [x] 01-02-PLAN.md — Create History, AutoSave, DragDrop namespaces; wire EventBus mutations; harden moveMarker normalize() invariant
 - [ ] 01-03-PLAN.md — Create AddMode, Export (with diff check), Toast, UI, FileLoader namespaces; wire Init; complete all EventBus wiring
 
 ### Phase 2: Sidebar Navigation
@@ -85,7 +85,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Structural Refactoring | 1/3 | In Progress|  |
+| 1. Structural Refactoring | 2/3 | In Progress|  |
 | 2. Sidebar Navigation | 0/TBD | Not started | - |
 | 3. Sequence Validation | 0/TBD | Not started | - |
 | 4. Click-to-Move | 0/TBD | Not started | - |
