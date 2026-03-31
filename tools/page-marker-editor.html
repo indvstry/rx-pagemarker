@@ -466,6 +466,49 @@
     <div class="toast" id="toast"></div>
 
     <script>
+        // SECTION ORDER IS LOAD ORDER — do not reorder
+
+        // ============================================================
+        // SECTION 1: EventBus
+        // ============================================================
+
+        var EventBus = (function() {
+            var listeners = {};
+            return {
+                on: function(event, fn) {
+                    (listeners[event] = listeners[event] || []).push(fn);
+                },
+                off: function(event, fn) {
+                    if (listeners[event]) {
+                        listeners[event] = listeners[event].filter(function(f) { return f !== fn; });
+                    }
+                },
+                emit: function(event, data) {
+                    (listeners[event] || []).forEach(function(fn) { fn(data); });
+                }
+            };
+        })();
+
+        // ============================================================
+        // SECTION 2: State
+        // ============================================================
+
+        var State = {
+            originalFileName: '',
+            originalHTML: '',
+            zoom: 100,
+            addMode: false,
+            hasUnsavedChanges: false,
+            draggedMarker: null,
+            dropTarget: null,
+            highlightedWord: null,
+
+            set: function(key, value) {
+                this[key] = value;
+                EventBus.emit('state:changed', { key: key, value: value });
+            }
+        };
+
         /**
          * Page Marker Editor - Visual drag-and-drop editor for EPUB page markers
          *
@@ -508,39 +551,11 @@
         // STATE MANAGEMENT
         // ============================================================
 
-        /** @type {string} Original file name for download naming */
-        var originalFileName = '';
-        /** @type {string} Original HTML content for preserving <head> during export */
-        let originalHTML = '';
-
         /** @type {HTMLElement[]} Stack of editor states for undo/redo (cloned DOM nodes) */
         let history = [];
 
         /** @type {number} Current position in history stack (-1 = no history) */
         let historyIndex = -1;
-
-        /** @type {number} Current zoom level as percentage (50-200) */
-        let zoom = 100;
-
-        /** @type {boolean} Whether add mode is active (for adding new markers) */
-        let addMode = false;
-
-        /** @type {HTMLElement|null} Currently highlighted word element in add mode */
-        let highlightedWord = null;
-
-        /** @type {boolean} Whether there are unsaved changes (for refresh warning) */
-        let hasUnsavedChanges = false;
-
-        /** @type {HTMLElement|null} The marker element currently being dragged */
-        let draggedMarker = null;
-
-        /**
-         * Current drop target position
-         * @type {{node: Text, offset: number}|null}
-         * - node: The text node where marker will be inserted
-         * - offset: Character position within the text node
-         */
-        let dropTarget = null;
 
         /** @type {string} localStorage key for auto-save */
         const STORAGE_KEY = 'pageMarkerEditor_autosave';
@@ -600,9 +615,9 @@
             // This works entirely client-side - no server needed
             const reader = new FileReader();
             reader.onload = function(e) {
-                originalHTML = e.target.result;  // Store for later export
-                originalFileName = file.name;   // Store for download naming
-                loadContent(originalHTML);
+                State.set('originalHTML', e.target.result);  // Store for later export
+                State.set('originalFileName', file.name);   // Store for download naming
+                loadContent(State.originalHTML);
                 showToast('File loaded successfully', 'success');
             };
             reader.onerror = function() {
@@ -616,7 +631,7 @@
          * This prevents accidental loss of work when refreshing or closing the tab
          */
         window.addEventListener('beforeunload', function(e) {
-            if (hasUnsavedChanges) {
+            if (State.hasUnsavedChanges) {
                 // Standard way to trigger browser's "unsaved changes" warning
                 e.preventDefault();
                 e.returnValue = '';  // Required for Chrome
@@ -711,7 +726,7 @@
         function autoSave() {
             try {
                 const data = {
-                    originalHTML: originalHTML,
+                    originalHTML: State.originalHTML,
                     editorContent: editor.innerHTML,
                     timestamp: Date.now()
                 };
@@ -792,7 +807,7 @@
             // Show restore prompt
             if (confirm('⚠️ Found unsaved work from ' + ageText + '.\n\nDo you want to restore it?\n\nClick OK to restore, or Cancel to start fresh.')) {
                 try {
-                    originalHTML = data.originalHTML;
+                    State.set('originalHTML', data.originalHTML);
                     // Restore editor content (user's own saved data from localStorage)
                     editor.innerHTML = data.editorContent;
                     editor.classList.remove('empty');
@@ -800,7 +815,7 @@
                     // Initialize history and state
                     history = [editor.cloneNode(true)];
                     historyIndex = 0;
-                    hasUnsavedChanges = true;
+                    State.set('hasUnsavedChanges', true);
 
                     updateButtons();
                     updateStats();
@@ -960,8 +975,8 @@
             if (e.button !== 0) return;
 
             // Store reference to the marker being dragged
-            draggedMarker = e.target;
-            draggedMarker.classList.add('dragging');  // Visual feedback (opacity)
+            State.set('draggedMarker', e.target);
+            State.draggedMarker.classList.add('dragging');  // Visual feedback (opacity)
 
             // Attach listeners to document (not marker) to track mouse everywhere
             document.addEventListener('mousemove', onDrag);
@@ -979,7 +994,7 @@
          * @param {MouseEvent} e - The mousemove event
          */
         function onDrag(e) {
-            if (!draggedMarker) return;
+            if (!State.draggedMarker) return;
 
             // Get the text position under the cursor
             const pos = getCaretPosition(e.clientX, e.clientY);
@@ -1001,14 +1016,14 @@
                 if (!insideMarker && pos.node.nodeType === Node.TEXT_NODE) {
                     // Snap to nearest word boundary
                     var snapped = snapToWordBoundary(pos.node, pos.offset);
-                    dropTarget = snapped;
+                    State.set('dropTarget', snapped);
                     showDropCursor(snapped);
                     return;
                 }
             }
 
             // Invalid position - hide cursor and clear target
-            dropTarget = null;
+            State.set('dropTarget', null);
             hideDropCursor();
         }
 
@@ -1052,18 +1067,18 @@
 
             hideDropCursor();
 
-            if (!draggedMarker) return;
+            if (!State.draggedMarker) return;
 
-            draggedMarker.classList.remove('dragging');
+            State.draggedMarker.classList.remove('dragging');
 
             // Move marker if we have a valid drop target
-            if (dropTarget && dropTarget.node) {
-                moveMarker(draggedMarker, dropTarget);
+            if (State.dropTarget && State.dropTarget.node) {
+                moveMarker(State.draggedMarker, State.dropTarget);
             }
 
             // Reset drag state
-            draggedMarker = null;
-            dropTarget = null;
+            State.set('draggedMarker', null);
+            State.set('dropTarget', null);
         }
 
         /**
@@ -1254,7 +1269,7 @@
             }
 
             // Mark that we have unsaved changes and auto-save
-            hasUnsavedChanges = true;
+            State.set('hasUnsavedChanges', true);
             autoSave();
 
             updateButtons();
@@ -1337,14 +1352,14 @@
          * @param {number} value - Zoom percentage (50-200)
          */
         function setZoom(value) {
-            zoom = Math.max(50, Math.min(200, value));
-            editor.style.fontSize = zoom + '%';
-            zoomLevelEl.textContent = zoom + '%';
+            State.set('zoom', Math.max(50, Math.min(200, value)));
+            editor.style.fontSize = State.zoom + '%';
+            zoomLevelEl.textContent = State.zoom + '%';
         }
 
         // Zoom button event listeners
-        zoomInBtn.addEventListener('click', function() { setZoom(zoom + 10); });
-        zoomOutBtn.addEventListener('click', function() { setZoom(zoom - 10); });
+        zoomInBtn.addEventListener('click', function() { setZoom(State.zoom + 10); });
+        zoomOutBtn.addEventListener('click', function() { setZoom(State.zoom - 10); });
 
         // ============================================================
         // ADD MODE SYSTEM
@@ -1364,11 +1379,11 @@
          * Toggle add mode on/off
          */
         function toggleAddMode() {
-            addMode = !addMode;
-            addModeBtn.classList.toggle('active', addMode);
-            editor.classList.toggle('add-mode', addMode);
+            State.set('addMode', !State.addMode);
+            addModeBtn.classList.toggle('active', State.addMode);
+            editor.classList.toggle('add-mode', State.addMode);
 
-            if (addMode) {
+            if (State.addMode) {
                 // Attach add mode event listeners
                 editor.addEventListener('mousemove', onAddModeHover);
                 editor.addEventListener('click', onAddModeClick);
@@ -1387,18 +1402,18 @@
          * Clear the current word highlight
          */
         function clearWordHighlight() {
-            if (highlightedWord) {
+            if (State.highlightedWord) {
                 // Unwrap the highlight span back to a plain text node
-                if (highlightedWord.isConnected) {
-                    var parent = highlightedWord.parentNode;
-                    while (highlightedWord.firstChild) {
-                        parent.insertBefore(highlightedWord.firstChild, highlightedWord);
+                if (State.highlightedWord.isConnected) {
+                    var parent = State.highlightedWord.parentNode;
+                    while (State.highlightedWord.firstChild) {
+                        parent.insertBefore(State.highlightedWord.firstChild, State.highlightedWord);
                     }
-                    parent.removeChild(highlightedWord);
+                    parent.removeChild(State.highlightedWord);
                     // Merge adjacent text nodes so the DOM stays clean
                     parent.normalize();
                 }
-                highlightedWord = null;
+                State.set('highlightedWord', null);
             }
         }
 
@@ -1433,7 +1448,7 @@
          * @param {MouseEvent} e - The mousemove event
          */
         function onAddModeHover(e) {
-            if (!addMode) return;
+            if (!State.addMode) return;
 
             // Get caret position under cursor
             const pos = getCaretPosition(e.clientX, e.clientY);
@@ -1480,12 +1495,12 @@
 
             try {
                 range.surroundContents(wrapper);
-                highlightedWord = wrapper;
+                State.set('highlightedWord', wrapper);
             } catch (err) {
                 // surroundContents can fail if range crosses element boundaries
                 // This is expected for text spanning multiple inline elements
                 console.warn('[Add Mode] Could not highlight word:', err.message);
-                highlightedWord = null;
+                State.set('highlightedWord', null);
             }
         }
 
@@ -1496,7 +1511,7 @@
          * @param {MouseEvent} e - The click event
          */
         function onAddModeClick(e) {
-            if (!addMode) return;
+            if (!State.addMode) return;
 
             // Don't add if clicking on an existing marker
             if (e.target.classList && e.target.classList.contains('page-marker')) {
@@ -1505,7 +1520,7 @@
             }
 
             // Give feedback if no word is highlighted (clicked on whitespace)
-            if (!highlightedWord) {
+            if (!State.highlightedWord) {
                 showToast('Click on a word to add marker', 'error');
                 return;
             }
@@ -1522,7 +1537,7 @@
             }
 
             // Insert marker after the highlighted word
-            insertMarkerAfterWord(highlightedWord, pageNum.trim());
+            insertMarkerAfterWord(State.highlightedWord, pageNum.trim());
 
             // Exit add mode after successful insertion
             toggleAddMode();
@@ -1600,7 +1615,7 @@
             newMarker.addEventListener('dblclick', editMarker);
 
             // Clear highlight reference
-            highlightedWord = null;
+            State.set('highlightedWord', null);
 
             // Save state for undo
             saveState();
@@ -1612,7 +1627,7 @@
 
         // Escape key exits add mode
         document.addEventListener('keydown', function(e) {
-            if (e.key === 'Escape' && addMode) {
+            if (e.key === 'Escape' && State.addMode) {
                 toggleAddMode();
             }
         });
@@ -1767,7 +1782,7 @@
 
             // Parse original HTML to preserve <head> section
             var parser = new DOMParser();
-            var originalDoc = parser.parseFromString(originalHTML, 'text/html');
+            var originalDoc = parser.parseFromString(State.originalHTML, 'text/html');
 
             // Replace body content in original document structure
             originalDoc.body.textContent = '';
@@ -1780,12 +1795,12 @@
             var serialized = serializer.serializeToString(originalDoc);
             // XMLSerializer may emit its own DOCTYPE — strip it so we can use the original
             serialized = serialized.replace(/^(\s*<!DOCTYPE[^>]*>\s*)/i, '');
-            var doctypeMatch = originalHTML.match(/^(\s*<!DOCTYPE[^>]*>\s*)/i);
+            var doctypeMatch = State.originalHTML.match(/^(\s*<!DOCTYPE[^>]*>\s*)/i);
             var output = doctypeMatch ? doctypeMatch[1] + serialized : serialized;
 
             // Trigger file download using Blob and temporary link
             var blob = new Blob([output], { type: 'text/html;charset=utf-8' });
-            var filename = originalFileName.replace(/\.html?$/i, '') + '-paginated.html';
+            var filename = State.originalFileName.replace(/\.html?$/i, '') + '-paginated.html';
 
             var url = URL.createObjectURL(blob);
             var a = document.createElement('a');
@@ -1797,7 +1812,7 @@
             URL.revokeObjectURL(url);
 
             // Clear unsaved changes flag and auto-save after successful download
-            hasUnsavedChanges = false;
+            State.set('hasUnsavedChanges', false);
             clearAutoSave();
 
             showExportToast('File downloaded!', result);
