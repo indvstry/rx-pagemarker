@@ -509,6 +509,30 @@
             }
         };
 
+        // ============================================================
+        // SECTION 3: Markers
+        // ============================================================
+
+        var Markers = {};
+
+        Markers.createMarker = function(pageNum, markerId) {
+            var span = document.createElement('span');
+            span.className = 'page-marker';
+            span.setAttribute('data-page', String(pageNum));
+            span.setAttribute('data-id', markerId || 'marker-' + Date.now());
+            span.setAttribute('draggable', 'true');
+            span.textContent = String(pageNum);
+            return span;
+        };
+
+        Markers.getAll = function() {
+            return Array.from(document.querySelectorAll('#editor .page-marker'));
+        };
+
+        Markers.getByPage = function(pageNum) {
+            return Array.from(document.querySelectorAll('#editor .page-marker[data-page="' + pageNum + '"]'));
+        };
+
         /**
          * Page Marker Editor - Visual drag-and-drop editor for EPUB page markers
          *
@@ -678,12 +702,7 @@
                 const pageNum = rawText.replace(/^σελ\.\s*/, '');
 
                 // Create new marker element with editor-specific attributes
-                const newMarker = document.createElement('span');
-                newMarker.className = 'page-marker';           // CSS styling class
-                newMarker.setAttribute('data-page', pageNum);  // Page number for display/export
-                newMarker.setAttribute('data-id', 'marker-' + markerIndex);  // Unique ID for tracking
-                newMarker.setAttribute('draggable', 'true');   // Enable drag (though we use mouse events)
-                newMarker.textContent = pageNum;
+                const newMarker = Markers.createMarker(pageNum, 'marker-' + markerIndex);
 
                 // Replace original marker with our editor version
                 marker.replaceWith(newMarker);
@@ -1181,12 +1200,7 @@
             const markerId = marker.getAttribute('data-id');
 
             // Create new marker element
-            const newMarker = document.createElement('span');
-            newMarker.className = 'page-marker';
-            newMarker.setAttribute('data-page', pageNum);
-            newMarker.setAttribute('data-id', markerId);
-            newMarker.setAttribute('draggable', 'true');
-            newMarker.textContent = pageNum;
+            const newMarker = Markers.createMarker(pageNum, markerId);
 
             // Split the text node at the word boundary
             const textNode = target.node;
@@ -1584,16 +1598,8 @@
                 return;
             }
 
-            // Generate unique marker ID
-            const markerId = 'marker-' + Date.now();
-
             // Create new marker element
-            const newMarker = document.createElement('span');
-            newMarker.className = 'page-marker';
-            newMarker.setAttribute('data-page', pageNum);
-            newMarker.setAttribute('data-id', markerId);
-            newMarker.setAttribute('draggable', 'true');
-            newMarker.textContent = pageNum;
+            const newMarker = Markers.createMarker(pageNum, 'marker-' + Date.now());
 
             try {
                 // Unwrap the word highlight back to text, then insert marker after it
