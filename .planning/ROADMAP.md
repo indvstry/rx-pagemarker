@@ -34,7 +34,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 Plans:
 - [x] 01-01-PLAN.md — Add EventBus, State, Markers namespaces; migrate 8 flat-scope globals; replace 3 inline marker createElement sites with Markers.createMarker factory
 - [x] 01-02-PLAN.md — Create History, AutoSave, DragDrop namespaces; wire EventBus mutations; harden moveMarker normalize() invariant
-- [ ] 01-03-PLAN.md — Create AddMode, Export (with diff check), Toast, UI, FileLoader namespaces; wire Init; complete all EventBus wiring
+- [x] 01-03-PLAN.md — Create AddMode, Export (with diff check), Toast, UI, FileLoader namespaces; wire Init; complete all EventBus wiring
 
 ### Phase 2: Sidebar Navigation
 **Goal**: Users can navigate a 200+ marker document via a clickable sidebar list and jump directly to any marker

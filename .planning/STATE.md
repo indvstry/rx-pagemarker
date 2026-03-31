@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 01-structural-refactoring/01-02-PLAN.md
-last_updated: "2026-03-31T13:36:23.876Z"
+status: verifying
+stopped_at: Completed 01-structural-refactoring/01-03-PLAN.md
+last_updated: "2026-03-31T13:45:25.172Z"
 last_activity: 2026-03-31
 progress:
   total_phases: 5
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 3
-  completed_plans: 2
+  completed_plans: 3
   percent: 0
 ---
 
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-03-30)
 
 Phase: 01 (structural-refactoring) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-03-31
 
 Progress: [░░░░░░░░░░] 0%
@@ -54,6 +54,7 @@ Progress: [░░░░░░░░░░] 0%
 *Updated after each plan completion*
 | Phase 01-structural-refactoring P01 | 323s | 2 tasks | 1 files |
 | Phase 01-structural-refactoring P02 | 31538776 | 2 tasks | 1 files |
+| Phase 01-structural-refactoring P03 | 900 | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -69,6 +70,8 @@ Recent decisions affecting current work:
 - [Phase 01-structural-refactoring]: Markers is a plain object (no IIFE) since it has no private state; createMarker factory consolidates 3 of 4 marker creation sites
 - [Phase 01-structural-refactoring]: saveState() call sites replaced with EventBus.emit before function deletion to keep app functional between tasks
 - [Phase 01-structural-refactoring]: getCaretPosition/findWordBoundaries kept at flat-scope alongside DragDrop private copies until Plan 03 creates AddMode namespace
+- [Phase 01-structural-refactoring]: Export diff check (_buildStrippedText) uses TreeWalker over text nodes skipping marker spans and normalizes whitespace — prevents false positives from whitespace-only divergence
+- [Phase 01-structural-refactoring]: FileLoader IIFE subscribes to file:loaded internally to call History.reset, DragDrop.init, AddMode.init — avoids double-init on restore paths
 
 ### Pending Todos
 
@@ -81,6 +84,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-31T13:36:23.873Z
-Stopped at: Completed 01-structural-refactoring/01-02-PLAN.md
+Last session: 2026-03-31T13:45:25.169Z
+Stopped at: Completed 01-structural-refactoring/01-03-PLAN.md
 Resume file: None
