@@ -30,6 +30,10 @@ Accurate page markers in EPUB files that match the print edition — enabling ci
 - ✓ PDF splitting CLI command and browser tool — Phase 12
 - ✓ Professional Python packaging with Click CLI — Phase 3
 - ✓ Comprehensive test suite (79 tests) — Phase 3
+- ✓ Editor JS namespace modules with EventBus and State — Phase 1 (visual editor milestone)
+- ✓ Content integrity: marker moves preserve all HTML classes/attributes — Phase 1 (visual editor milestone)
+- ✓ Export diff check validates non-marker structure — Phase 1 (visual editor milestone)
+- ✓ Marker factory consolidated from 4 duplicated sites — Phase 1 (visual editor milestone)
 
 ### Active
 
@@ -97,4 +101,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-30 after initialization*
+*Last updated: 2026-03-31 after Phase 1 completion*
