@@ -533,6 +533,192 @@
             return Array.from(document.querySelectorAll('#editor .page-marker[data-page="' + pageNum + '"]'));
         };
 
+        // ============================================================
+        // SECTION 3.5: UI stub — TEMPORARY, replaced by real UI namespace in Plan 03
+        // ============================================================
+        var UI = { updateStats: function() {
+            var editorEl = document.getElementById('editor');
+            var statsEl = document.getElementById('stats');
+            var markerEls = editorEl.querySelectorAll('.page-marker');
+            var count = markerEls.length;
+            statsEl.textContent = '';
+            var strong = document.createElement('strong');
+            strong.textContent = count;
+            statsEl.appendChild(strong);
+            statsEl.appendChild(document.createTextNode(' page marker' + (count !== 1 ? 's' : '')));
+        }};
+
+        // ============================================================
+        // SECTION 4: History
+        // ============================================================
+        var History = (function() {
+            var stack = [];
+            var index = -1;
+            var MAX = 50;
+            var _editor = null;
+
+            function _capture() {
+                if (index < stack.length - 1) { stack = stack.slice(0, index + 1); }
+                stack.push(_editor.cloneNode(true));
+                index = stack.length - 1;
+                if (stack.length > MAX) { stack.shift(); index--; }
+                State.set('hasUnsavedChanges', true);
+                AutoSave.save();
+                _updateButtons();
+                UI.updateStats();
+            }
+
+            function _restore(savedEditor) {
+                _editor.textContent = '';
+                Array.from(savedEditor.childNodes).forEach(function(node) {
+                    _editor.appendChild(node.cloneNode(true));
+                });
+                _editor.classList.remove('empty');
+                _updateButtons();
+                UI.updateStats();
+                EventBus.emit('history:restored');  // AFTER DOM is fully rebuilt
+            }
+
+            function _updateButtons() {
+                document.getElementById('undoBtn').disabled = index <= 0;
+                document.getElementById('redoBtn').disabled = index >= stack.length - 1;
+            }
+
+            // Subscribe to all mutation events — _capture() is ONLY called via EventBus
+            // NOTE: markers:added is pre-wired here even though AddMode (Plan 03) is the emitter.
+            // This is intentional: History must be fully wired before AddMode is loaded.
+            EventBus.on('markers:moved',   _capture);
+            EventBus.on('markers:added',   _capture);
+            EventBus.on('markers:deleted', _capture);
+            EventBus.on('markers:updated', _capture);
+
+            return {
+                undo: function() { if (index > 0) { index--; _restore(stack[index]); } },
+                redo: function() { if (index < stack.length - 1) { index++; _restore(stack[index]); } },
+                reset: function(editorEl) {
+                    _editor = editorEl;
+                    stack = [_editor.cloneNode(true)];
+                    index = 0;
+                    _updateButtons();
+                }
+            };
+        })();
+
+        // ============================================================
+        // SECTION 5: AutoSave
+        // ============================================================
+        var AutoSave = (function() {
+            var STORAGE_KEY = 'pageMarkerEditor_autosave';
+            var failCount = 0;
+            var MAX_FAILS = 3;
+
+            function save() {
+                var editorEl = document.getElementById('editor');
+                try {
+                    var data = {
+                        originalHTML: State.originalHTML,
+                        editorContent: editorEl.innerHTML,
+                        timestamp: Date.now()
+                    };
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+                    failCount = 0;
+                } catch (e) {
+                    failCount++;
+                    console.warn('[AutoSave] Failed to save:', e.message);
+                    if (failCount === MAX_FAILS) {
+                        showToast('Auto-save disabled: ' + e.message + '. Please download your work manually!', 'error');
+                    }
+                }
+            }
+
+            function clear() {
+                try {
+                    localStorage.removeItem(STORAGE_KEY);
+                } catch (e) {
+                    console.warn('[AutoSave] Failed to clear saved state:', e.message);
+                }
+            }
+
+            function checkForSavedState() {
+                var editorEl = document.getElementById('editor');
+                var saved;
+                try {
+                    saved = localStorage.getItem(STORAGE_KEY);
+                } catch (e) {
+                    console.warn('[AutoSave] Cannot access localStorage:', e.message);
+                    return;
+                }
+
+                if (!saved) return;
+
+                var data;
+                try {
+                    data = JSON.parse(saved);
+                } catch (e) {
+                    console.warn('[AutoSave] Saved data is corrupted, clearing:', e.message);
+                    AutoSave.clear();
+                    return;
+                }
+
+                if (!data.timestamp || !data.editorContent) {
+                    console.warn('[AutoSave] Saved data is incomplete, clearing');
+                    AutoSave.clear();
+                    return;
+                }
+
+                var age = Date.now() - data.timestamp;
+                var MAX_AGE = 7 * 24 * 60 * 60 * 1000;
+                if (age < 0 || age > MAX_AGE) {
+                    console.warn('[AutoSave] Saved data has invalid timestamp, clearing');
+                    AutoSave.clear();
+                    return;
+                }
+
+                var ageMinutes = Math.floor(age / 60000);
+                var ageText = ageMinutes < 60
+                    ? ageMinutes + ' minutes ago'
+                    : Math.floor(ageMinutes / 60) + ' hours ago';
+
+                if (confirm('⚠️ Found unsaved work from ' + ageText + '.\n\nDo you want to restore it?\n\nClick OK to restore, or Cancel to start fresh.')) {
+                    try {
+                        State.set('originalHTML', data.originalHTML);
+                        // Safe: restoring user's own content saved from their previous session (same origin, localStorage)
+                        editorEl.textContent = '';
+                        var parser = new DOMParser();
+                        var restoredDoc = parser.parseFromString('<body>' + data.editorContent + '</body>', 'text/html');
+                        Array.from(restoredDoc.body.childNodes).forEach(function(node) {
+                            editorEl.appendChild(node.cloneNode(true));
+                        });
+                        editorEl.classList.remove('empty');
+
+                        History.reset(editorEl);
+                        State.set('hasUnsavedChanges', true);
+
+                        Markers.setupListeners(editorEl);
+                        UI.updateStats();
+
+                        document.getElementById('downloadBtn').disabled = false;
+                        document.getElementById('copyBodyBtn').disabled = false;
+                        document.getElementById('addModeBtn').disabled = false;
+
+                        showToast('Previous work restored!', 'success');
+                    } catch (e) {
+                        console.error('[AutoSave] Failed to apply restored data:', e.message);
+                        showToast('Failed to restore - data may be incompatible', 'error');
+                        AutoSave.clear();
+                    }
+                } else {
+                    AutoSave.clear();
+                }
+            }
+
+            EventBus.on('file:loaded', function() {
+                failCount = 0;
+            });
+
+            return { save: save, clear: clear, checkForSavedState: checkForSavedState };
+        })();
+
         /**
          * Page Marker Editor - Visual drag-and-drop editor for EPUB page markers
          *
@@ -570,19 +756,6 @@
          * @author RX Page Marker Team
          * @see CLAUDE.md for project context and workflow documentation
          */
-
-        // ============================================================
-        // STATE MANAGEMENT
-        // ============================================================
-
-        /** @type {HTMLElement[]} Stack of editor states for undo/redo (cloned DOM nodes) */
-        let history = [];
-
-        /** @type {number} Current position in history stack (-1 = no history) */
-        let historyIndex = -1;
-
-        /** @type {string} localStorage key for auto-save */
-        const STORAGE_KEY = 'pageMarkerEditor_autosave';
 
         // ============================================================
         // UTILITY FUNCTIONS
@@ -719,145 +892,14 @@
 
             // Initialize history with current state as the starting point
             // This enables undo back to the original loaded state
-            history = [editor.cloneNode(true)];
-            historyIndex = 0;
-            updateButtons();
-            updateStats();
+            History.reset(editor);
+            UI.updateStats();
             setupMarkerDragging();
 
             downloadBtn.disabled = false;
             copyBodyBtn.disabled = false;
             addModeBtn.disabled = false;
         }
-
-        // ============================================================
-        // AUTO-SAVE TO LOCAL STORAGE
-        // ============================================================
-
-        // Track auto-save failures to notify user after repeated issues
-        let autoSaveFailCount = 0;
-        const MAX_AUTOSAVE_FAILS = 3;
-
-        /**
-         * Save current editor state to localStorage
-         * Called after every change to prevent data loss on refresh
-         */
-        function autoSave() {
-            try {
-                const data = {
-                    originalHTML: State.originalHTML,
-                    editorContent: editor.innerHTML,
-                    timestamp: Date.now()
-                };
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-                autoSaveFailCount = 0;  // Reset on success
-            } catch (e) {
-                autoSaveFailCount++;
-                console.warn('[AutoSave] Failed to save:', e.message);
-
-                // Notify user after repeated failures so they know to save manually
-                if (autoSaveFailCount === MAX_AUTOSAVE_FAILS) {
-                    showToast('Auto-save disabled: ' + e.message + '. Please download your work manually!', 'error');
-                }
-            }
-        }
-
-        /**
-         * Clear saved state from localStorage
-         * Called after successful download
-         */
-        function clearAutoSave() {
-            try {
-                localStorage.removeItem(STORAGE_KEY);
-            } catch (e) {
-                // Non-critical: user can manually clear browser data if needed
-                console.warn('[AutoSave] Failed to clear saved state:', e.message);
-            }
-        }
-
-        /**
-         * Check for and restore saved state on page load
-         * Note: Uses innerHTML to restore user's own saved content from localStorage
-         * This is safe as the content originates from the user's previous session
-         */
-        function checkForSavedState() {
-            let saved;
-            try {
-                saved = localStorage.getItem(STORAGE_KEY);
-            } catch (e) {
-                console.warn('[AutoSave] Cannot access localStorage:', e.message);
-                return;
-            }
-
-            if (!saved) return;
-
-            // Parse saved data with error handling for corrupted JSON
-            let data;
-            try {
-                data = JSON.parse(saved);
-            } catch (e) {
-                console.warn('[AutoSave] Saved data is corrupted, clearing:', e.message);
-                clearAutoSave();
-                return;
-            }
-
-            // Validate required fields exist
-            if (!data.timestamp || !data.editorContent) {
-                console.warn('[AutoSave] Saved data is incomplete, clearing');
-                clearAutoSave();
-                return;
-            }
-
-            const age = Date.now() - data.timestamp;
-
-            // Sanity check: reject data older than 7 days or with future timestamps
-            const MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days
-            if (age < 0 || age > MAX_AGE) {
-                console.warn('[AutoSave] Saved data has invalid timestamp, clearing');
-                clearAutoSave();
-                return;
-            }
-
-            const ageMinutes = Math.floor(age / 60000);
-            const ageText = ageMinutes < 60
-                ? ageMinutes + ' minutes ago'
-                : Math.floor(ageMinutes / 60) + ' hours ago';
-
-            // Show restore prompt
-            if (confirm('⚠️ Found unsaved work from ' + ageText + '.\n\nDo you want to restore it?\n\nClick OK to restore, or Cancel to start fresh.')) {
-                try {
-                    State.set('originalHTML', data.originalHTML);
-                    // Restore editor content (user's own saved data from localStorage)
-                    editor.innerHTML = data.editorContent;
-                    editor.classList.remove('empty');
-
-                    // Initialize history and state
-                    history = [editor.cloneNode(true)];
-                    historyIndex = 0;
-                    State.set('hasUnsavedChanges', true);
-
-                    updateButtons();
-                    updateStats();
-                    setupMarkerDragging();
-
-                    downloadBtn.disabled = false;
-                    copyBodyBtn.disabled = false;
-                    addModeBtn.disabled = false;
-
-                    showToast('Previous work restored!', 'success');
-                } catch (e) {
-                    console.error('[AutoSave] Failed to apply restored data:', e.message);
-                    showToast('Failed to restore - data may be incompatible', 'error');
-                    clearAutoSave();
-                }
-            } else {
-                // User chose not to restore - clear saved state
-                clearAutoSave();
-            }
-        }
-
-        // Check for saved state on page load
-        checkForSavedState();
 
         // ============================================================
         // DRAG AND DROP SYSTEM
@@ -953,7 +995,7 @@
             marker.setAttribute('data-page', newPage);
             marker.textContent = newPage;
 
-            saveState();
+            EventBus.emit('markers:updated', { marker: marker, oldPage: oldPage });
             showToast('Updated marker ' + oldPage + ' → ' + newPage, 'success');
         }
 
@@ -979,7 +1021,7 @@
 
             marker.remove();
 
-            saveState();
+            EventBus.emit('markers:deleted', { pageNum: pageNum });
             showToast('Deleted marker ' + pageNum, 'success');
         }
 
@@ -1230,129 +1272,9 @@
             newMarker.addEventListener('mousedown', startDrag);
             newMarker.addEventListener('dblclick', editMarker);
 
-            // Save state for undo and notify user
-            saveState();
+            // Notify via EventBus — History will capture the state change
+            EventBus.emit('markers:moved', { marker: newMarker });
             showToast('Marker ' + pageNum + ' moved', 'success');
-        }
-
-        // ============================================================
-        // HISTORY (UNDO/REDO) SYSTEM
-        // ============================================================
-        //
-        // The history system stores complete snapshots of the editor DOM.
-        // This is simpler than tracking individual operations (command pattern)
-        // and ensures perfect restoration of any previous state.
-        //
-        // Trade-off: Uses more memory, but for typical documents with a few
-        // dozen markers, this is negligible. We limit to 50 states max.
-        //
-        // History structure:
-        //   [state0, state1, state2, ...]
-        //           ^
-        //           historyIndex
-        //
-        // - Undo moves historyIndex left
-        // - Redo moves historyIndex right
-        // - New action after undo truncates future states
-        // ============================================================
-
-        /**
-         * Save current editor state to history
-         *
-         * Called after every marker move. Handles the common case where
-         * user undoes something, then makes a new change - we discard
-         * the "future" states that are no longer reachable.
-         */
-        function saveState() {
-            // If we're not at the end of history, truncate future states
-            // This happens when user undoes, then makes a new change
-            if (historyIndex < history.length - 1) {
-                history = history.slice(0, historyIndex + 1);
-            }
-
-            // Clone the entire editor DOM tree
-            // cloneNode(true) performs a deep clone including all children
-            history.push(editor.cloneNode(true));
-            historyIndex = history.length - 1;
-
-            // Prevent unbounded memory growth
-            // Keep maximum 50 states (plenty for typical editing sessions)
-            if (history.length > 50) {
-                history.shift();       // Remove oldest state
-                historyIndex--;        // Adjust index to match
-            }
-
-            // Mark that we have unsaved changes and auto-save
-            State.set('hasUnsavedChanges', true);
-            autoSave();
-
-            updateButtons();
-            updateStats();
-        }
-
-        /**
-         * Undo the last action
-         * Restores the previous state from history
-         */
-        function undo() {
-            if (historyIndex > 0) {
-                historyIndex--;
-                restoreState(history[historyIndex]);
-            }
-        }
-
-        /**
-         * Redo a previously undone action
-         * Restores the next state from history
-         */
-        function redo() {
-            if (historyIndex < history.length - 1) {
-                historyIndex++;
-                restoreState(history[historyIndex]);
-            }
-        }
-
-        /**
-         * Restore editor content from a saved state
-         *
-         * @param {HTMLElement} savedEditor - A cloned editor DOM tree
-         */
-        function restoreState(savedEditor) {
-            // Clear current content
-            editor.textContent = '';
-
-            // Clone and insert all child nodes from saved state
-            // We clone again because we might redo back to this state
-            Array.from(savedEditor.childNodes).forEach(function(node) {
-                editor.appendChild(node.cloneNode(true));
-            });
-            editor.classList.remove('empty');
-
-            // Re-attach event listeners to markers (they don't persist in clones)
-            setupMarkerDragging();
-            updateButtons();
-            updateStats();
-        }
-
-        /**
-         * Update undo/redo button enabled states based on history position
-         */
-        function updateButtons() {
-            undoBtn.disabled = historyIndex <= 0;
-            redoBtn.disabled = historyIndex >= history.length - 1;
-        }
-
-        /**
-         * Update the marker count display in the toolbar
-         */
-        function updateStats() {
-            const markers = editor.querySelectorAll('.page-marker');
-            const count = markers.length;
-            statsEl.textContent = '';
-            const strong = document.createElement('strong');
-            strong.textContent = count;
-            statsEl.appendChild(strong);
-            statsEl.appendChild(document.createTextNode(' page marker' + (count !== 1 ? 's' : '')));
         }
 
         // ============================================================
@@ -1623,8 +1545,8 @@
             // Clear highlight reference
             State.set('highlightedWord', null);
 
-            // Save state for undo
-            saveState();
+            // Notify via EventBus — History will capture the state change
+            EventBus.emit('markers:added', { marker: newMarker });
             showToast('Added marker for page ' + pageNum, 'success');
         }
 
@@ -1643,18 +1565,18 @@
         // ============================================================
 
         // Undo/Redo button clicks
-        undoBtn.addEventListener('click', undo);
-        redoBtn.addEventListener('click', redo);
+        undoBtn.addEventListener('click', function() { History.undo(); });
+        redoBtn.addEventListener('click', function() { History.redo(); });
 
         // Keyboard shortcuts (Ctrl+Z / Ctrl+Y or Cmd+Z / Cmd+Y on Mac)
         document.addEventListener('keydown', function(e) {
             if (e.ctrlKey || e.metaKey) {
                 if (e.key === 'z') {
                     e.preventDefault();
-                    undo();
+                    History.undo();
                 } else if (e.key === 'y') {
                     e.preventDefault();
-                    redo();
+                    History.redo();
                 }
             }
         });
@@ -1819,7 +1741,7 @@
 
             // Clear unsaved changes flag and auto-save after successful download
             State.set('hasUnsavedChanges', false);
-            clearAutoSave();
+            AutoSave.clear();
 
             showExportToast('File downloaded!', result);
         });
@@ -1870,6 +1792,14 @@
                 toastEl.classList.remove('show');
             }, 2000);
         }
+
+        // ============================================================
+        // INITIALIZATION
+        // ============================================================
+
+        // Check for and restore any auto-saved work from previous session
+        AutoSave.checkForSavedState();
+
     </script>
 </body>
 </html>
