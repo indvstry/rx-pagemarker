@@ -466,783 +466,6 @@
     <div class="toast" id="toast"></div>
 
     <script>
-        // SECTION ORDER IS LOAD ORDER — do not reorder
-
-        // ============================================================
-        // SECTION 1: EventBus
-        // ============================================================
-
-        var EventBus = (function() {
-            var listeners = {};
-            return {
-                on: function(event, fn) {
-                    (listeners[event] = listeners[event] || []).push(fn);
-                },
-                off: function(event, fn) {
-                    if (listeners[event]) {
-                        listeners[event] = listeners[event].filter(function(f) { return f !== fn; });
-                    }
-                },
-                emit: function(event, data) {
-                    (listeners[event] || []).forEach(function(fn) { fn(data); });
-                }
-            };
-        })();
-
-        // ============================================================
-        // SECTION 2: State
-        // ============================================================
-
-        var State = {
-            originalFileName: '',
-            originalHTML: '',
-            zoom: 100,
-            addMode: false,
-            hasUnsavedChanges: false,
-            draggedMarker: null,
-            dropTarget: null,
-            highlightedWord: null,
-
-            set: function(key, value) {
-                this[key] = value;
-                EventBus.emit('state:changed', { key: key, value: value });
-            }
-        };
-
-        // ============================================================
-        // SECTION 3: Markers
-        // ============================================================
-
-        var Markers = {};
-
-        Markers.createMarker = function(pageNum, markerId) {
-            var span = document.createElement('span');
-            span.className = 'page-marker';
-            span.setAttribute('data-page', String(pageNum));
-            span.setAttribute('data-id', markerId || 'marker-' + Date.now());
-            span.setAttribute('draggable', 'true');
-            span.textContent = String(pageNum);
-            return span;
-        };
-
-        Markers.getAll = function() {
-            return Array.from(document.querySelectorAll('#editor .page-marker'));
-        };
-
-        Markers.getByPage = function(pageNum) {
-            return Array.from(document.querySelectorAll('#editor .page-marker[data-page="' + pageNum + '"]'));
-        };
-
-
-        // ============================================================
-        // SECTION 4: History
-        // ============================================================
-        var History = (function() {
-            var stack = [];
-            var index = -1;
-            var MAX = 50;
-            var _editor = null;
-
-            function _capture() {
-                if (index < stack.length - 1) { stack = stack.slice(0, index + 1); }
-                stack.push(_editor.cloneNode(true));
-                index = stack.length - 1;
-                if (stack.length > MAX) { stack.shift(); index--; }
-                State.set('hasUnsavedChanges', true);
-                AutoSave.save();
-                _updateButtons();
-                UI.updateStats();
-            }
-
-            function _restore(savedEditor) {
-                _editor.textContent = '';
-                Array.from(savedEditor.childNodes).forEach(function(node) {
-                    _editor.appendChild(node.cloneNode(true));
-                });
-                _editor.classList.remove('empty');
-                _updateButtons();
-                UI.updateStats();
-                EventBus.emit('history:restored');  // AFTER DOM is fully rebuilt
-            }
-
-            function _updateButtons() {
-                document.getElementById('undoBtn').disabled = index <= 0;
-                document.getElementById('redoBtn').disabled = index >= stack.length - 1;
-            }
-
-            // Subscribe to all mutation events — _capture() is ONLY called via EventBus
-            // NOTE: markers:added is pre-wired here even though AddMode (Plan 03) is the emitter.
-            // This is intentional: History must be fully wired before AddMode is loaded.
-            EventBus.on('markers:moved',   _capture);
-            EventBus.on('markers:added',   _capture);
-            EventBus.on('markers:deleted', _capture);
-            EventBus.on('markers:updated', _capture);
-
-            return {
-                undo: function() { if (index > 0) { index--; _restore(stack[index]); } },
-                redo: function() { if (index < stack.length - 1) { index++; _restore(stack[index]); } },
-                reset: function(editorEl) {
-                    _editor = editorEl;
-                    stack = [_editor.cloneNode(true)];
-                    index = 0;
-                    _updateButtons();
-                }
-            };
-        })();
-
-        // ============================================================
-        // SECTION 5: AutoSave
-        // ============================================================
-        var AutoSave = (function() {
-            var STORAGE_KEY = 'pageMarkerEditor_autosave';
-            var failCount = 0;
-            var MAX_FAILS = 3;
-
-            function save() {
-                var editorEl = document.getElementById('editor');
-                try {
-                    var data = {
-                        originalHTML: State.originalHTML,
-                        editorContent: editorEl.innerHTML,
-                        timestamp: Date.now()
-                    };
-                    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-                    failCount = 0;
-                } catch (e) {
-                    failCount++;
-                    console.warn('[AutoSave] Failed to save:', e.message);
-                    if (failCount === MAX_FAILS) {
-                        Toast.show('Auto-save disabled: ' + e.message + '. Please download your work manually!', 'error');
-                    }
-                }
-            }
-
-            function clear() {
-                try {
-                    localStorage.removeItem(STORAGE_KEY);
-                } catch (e) {
-                    console.warn('[AutoSave] Failed to clear saved state:', e.message);
-                }
-            }
-
-            function checkForSavedState() {
-                var editorEl = document.getElementById('editor');
-                var saved;
-                try {
-                    saved = localStorage.getItem(STORAGE_KEY);
-                } catch (e) {
-                    console.warn('[AutoSave] Cannot access localStorage:', e.message);
-                    return;
-                }
-
-                if (!saved) return;
-
-                var data;
-                try {
-                    data = JSON.parse(saved);
-                } catch (e) {
-                    console.warn('[AutoSave] Saved data is corrupted, clearing:', e.message);
-                    AutoSave.clear();
-                    return;
-                }
-
-                if (!data.timestamp || !data.editorContent) {
-                    console.warn('[AutoSave] Saved data is incomplete, clearing');
-                    AutoSave.clear();
-                    return;
-                }
-
-                var age = Date.now() - data.timestamp;
-                var MAX_AGE = 7 * 24 * 60 * 60 * 1000;
-                if (age < 0 || age > MAX_AGE) {
-                    console.warn('[AutoSave] Saved data has invalid timestamp, clearing');
-                    AutoSave.clear();
-                    return;
-                }
-
-                var ageMinutes = Math.floor(age / 60000);
-                var ageText = ageMinutes < 60
-                    ? ageMinutes + ' minutes ago'
-                    : Math.floor(ageMinutes / 60) + ' hours ago';
-
-                if (confirm('⚠️ Found unsaved work from ' + ageText + '.\n\nDo you want to restore it?\n\nClick OK to restore, or Cancel to start fresh.')) {
-                    try {
-                        State.set('originalHTML', data.originalHTML);
-                        // Safe: restoring user's own content saved from their previous session (same origin, localStorage)
-                        editorEl.textContent = '';
-                        var parser = new DOMParser();
-                        var restoredDoc = parser.parseFromString('<body>' + data.editorContent + '</body>', 'text/html');
-                        Array.from(restoredDoc.body.childNodes).forEach(function(node) {
-                            editorEl.appendChild(node.cloneNode(true));
-                        });
-                        editorEl.classList.remove('empty');
-
-                        History.reset(editorEl);
-                        State.set('hasUnsavedChanges', true);
-
-                        Markers.setupListeners(editorEl);
-                        UI.updateStats();
-
-                        document.getElementById('downloadBtn').disabled = false;
-                        document.getElementById('copyBodyBtn').disabled = false;
-                        document.getElementById('addModeBtn').disabled = false;
-
-                        Toast.show('Previous work restored!', 'success');
-                    } catch (e) {
-                        console.error('[AutoSave] Failed to apply restored data:', e.message);
-                        Toast.show('Failed to restore - data may be incompatible', 'error');
-                        AutoSave.clear();
-                    }
-                } else {
-                    AutoSave.clear();
-                }
-            }
-
-            EventBus.on('file:loaded', function() {
-                failCount = 0;
-            });
-
-            return { save: save, clear: clear, checkForSavedState: checkForSavedState };
-        })();
-
-        // ============================================================
-        // SECTION 6: DragDrop
-        // ============================================================
-        var DragDrop = (function() {
-            var _editor = null;
-
-            function init(editorEl) {
-                _editor = editorEl;
-            }
-
-            function _attachListeners() {
-                var markers = _editor.querySelectorAll('.page-marker');
-                markers.forEach(function(marker) {
-                    marker.addEventListener('mousedown', startDrag);
-                });
-            }
-
-            /**
-             * Begin dragging a marker
-             * Sets up global mousemove/mouseup listeners for the drag operation
-             */
-            function startDrag(e) {
-                if (e.button !== 0) return;
-                State.set('draggedMarker', e.target);
-                State.draggedMarker.classList.add('dragging');
-                document.addEventListener('mousemove', onDrag);
-                document.addEventListener('mouseup', endDrag);
-                e.preventDefault();
-            }
-
-            /**
-             * Handle mouse movement during drag
-             */
-            function onDrag(e) {
-                if (!State.draggedMarker) return;
-                var pos = getCaretPosition(e.clientX, e.clientY);
-                if (pos && _editor.contains(pos.node)) {
-                    var node = pos.node;
-                    var insideMarker = false;
-                    while (node && node !== _editor) {
-                        if (node.classList && node.classList.contains('page-marker')) {
-                            insideMarker = true;
-                            break;
-                        }
-                        node = node.parentNode;
-                    }
-                    if (!insideMarker && pos.node.nodeType === Node.TEXT_NODE) {
-                        var snapped = snapToWordBoundary(pos.node, pos.offset);
-                        State.set('dropTarget', snapped);
-                        showDropCursor(snapped);
-                        return;
-                    }
-                }
-                State.set('dropTarget', null);
-                hideDropCursor();
-            }
-
-            /**
-             * End the drag operation
-             */
-            function endDrag(e) {
-                document.removeEventListener('mousemove', onDrag);
-                document.removeEventListener('mouseup', endDrag);
-                hideDropCursor();
-                if (!State.draggedMarker) return;
-                State.draggedMarker.classList.remove('dragging');
-                if (State.dropTarget && State.dropTarget.node) {
-                    DragDrop.moveMarker(State.draggedMarker, State.dropTarget);
-                    EventBus.emit('markers:moved', { marker: State.draggedMarker });
-                }
-                State.set('draggedMarker', null);
-                State.set('dropTarget', null);
-            }
-
-            /**
-             * Snap a caret position to the nearest word boundary.
-             */
-            function snapToWordBoundary(textNode, offset) {
-                var text = textNode.textContent;
-                if (offset >= text.length || /\s/.test(text[offset])) {
-                    return { node: textNode, offset: offset };
-                }
-                var boundaries = findWordBoundaries(text, offset);
-                var distToStart = offset - boundaries.start;
-                var distToEnd = boundaries.end - offset;
-                var snappedOffset = distToEnd <= distToStart ? boundaries.end : boundaries.start;
-                return { node: textNode, offset: snappedOffset };
-            }
-
-            /**
-             * Find word boundaries at a text position
-             */
-            function findWordBoundaries(text, offset) {
-                var start = offset;
-                while (start > 0 && !/\s/.test(text[start - 1])) { start--; }
-                var end = offset;
-                while (end < text.length && !/\s/.test(text[end])) { end++; }
-                return { start: start, end: end };
-            }
-
-            /**
-             * Get the text position (node + offset) at screen coordinates
-             */
-            function getCaretPosition(x, y) {
-                var range;
-                if (document.caretPositionFromPoint) {
-                    var pos = document.caretPositionFromPoint(x, y);
-                    if (pos) { return { node: pos.offsetNode, offset: pos.offset }; }
-                } else if (document.caretRangeFromPoint) {
-                    range = document.caretRangeFromPoint(x, y);
-                    if (range) { return { node: range.startContainer, offset: range.startOffset }; }
-                }
-                return null;
-            }
-
-            /**
-             * Show the visual drop cursor at a text position
-             */
-            function showDropCursor(pos) {
-                var dropCursorEl = document.getElementById('drop-cursor');
-                if (pos.node.nodeType !== Node.TEXT_NODE) {
-                    hideDropCursor();
-                    return;
-                }
-                var range = document.createRange();
-                range.setStart(pos.node, pos.offset);
-                range.setEnd(pos.node, pos.offset);
-                var rect = range.getBoundingClientRect();
-                dropCursorEl.style.left = rect.left + 'px';
-                dropCursorEl.style.top = rect.top + 'px';
-                dropCursorEl.style.height = '20px';
-                dropCursorEl.classList.add('visible');
-            }
-
-            /**
-             * Hide the visual drop cursor
-             */
-            function hideDropCursor() {
-                var dropCursorEl = document.getElementById('drop-cursor');
-                dropCursorEl.classList.remove('visible');
-            }
-
-            /**
-             * Move a marker to a new position in the document
-             *
-             * Hardened: oldParent.normalize() is called unconditionally after
-             * marker.remove() — no (oldParent !== parent) guard — ensuring no
-             * orphaned text nodes are left in the old parent.
-             */
-            function moveMarker(marker, target) {
-                if (!target.node || target.node.nodeType !== Node.TEXT_NODE) {
-                    Toast.show('Invalid drop position', 'error');
-                    return;
-                }
-
-                var pageNum = marker.getAttribute('data-page');
-                var markerId = marker.getAttribute('data-id');
-                var newMarker = Markers.createMarker(pageNum, markerId);
-
-                var textNode = target.node;
-                var offset = target.offset;
-                var parent = textNode.parentNode;
-
-                // Remove old marker and unconditionally normalize old parent
-                var oldParent = marker.parentNode;
-                marker.remove();
-                if (oldParent) {
-                    oldParent.normalize();  // Always — merges adjacent text nodes left by removal
-                }
-
-                // If normalize() merged the target text node (same parent case), bail
-                if (!textNode.isConnected) {
-                    Toast.show('Drop position changed - try again', 'error');
-                    return;
-                }
-
-                var afterNode = textNode.splitText(offset);
-                parent.insertBefore(newMarker, afterNode);
-
-                // Attach listeners (mousedown only — dblclick attached by Markers.setupListeners via history:restored)
-                newMarker.addEventListener('mousedown', DragDrop.startDrag);
-
-                Toast.show('Marker ' + pageNum + ' moved', 'success');
-            }
-
-            // Re-attach drag listeners after undo/redo restores DOM
-            EventBus.on('history:restored', _attachListeners);
-
-            return {
-                init: init,
-                startDrag: startDrag,
-                moveMarker: moveMarker,
-                hideDropCursor: hideDropCursor,
-                attachListeners: _attachListeners
-            };
-        })();
-
-        // history:restored — second subscriber: re-attach dblclick (edit) listeners
-        EventBus.on('history:restored', function() {
-            Markers.setupListeners(document.getElementById('editor'));
-        });
-
-        // Extend Markers namespace with edit/delete/update/setupListeners
-        Markers.editMarker = function(e) {
-            e.preventDefault();
-            e.stopPropagation();
-
-            var marker = e.target;
-            while (marker && !marker.classList.contains('page-marker')) {
-                marker = marker.parentElement;
-            }
-
-            if (!marker) {
-                console.error('[Edit] Double-click event target is not a marker');
-                return;
-            }
-
-            var currentPage = marker.getAttribute('data-page');
-            if (currentPage === null) {
-                console.warn('[Edit] Marker missing data-page attribute');
-                Toast.show('Marker is corrupted - cannot edit', 'error');
-                return;
-            }
-
-            var newPage = prompt('Edit page number (leave empty to delete):', currentPage);
-            if (newPage === null) return;
-
-            var trimmedPage = newPage.trim();
-            if (trimmedPage === '') {
-                Markers.deleteMarker(marker);
-            } else if (trimmedPage !== currentPage) {
-                Markers.updateMarkerNumber(marker, trimmedPage);
-            }
-        };
-
-        Markers.deleteMarker = function(marker) {
-            if (!marker) {
-                console.error('[Edit] Cannot delete marker - element is null');
-                Toast.show('Failed to delete marker', 'error');
-                return;
-            }
-
-            var pageNum = marker.getAttribute('data-page') || '?';
-
-            if (!marker.isConnected) {
-                console.warn('[Edit] Marker already removed from DOM');
-                Toast.show('Marker already deleted', 'success');
-                return;
-            }
-
-            marker.remove();
-
-            EventBus.emit('markers:deleted', { pageNum: pageNum });
-            Toast.show('Deleted marker ' + pageNum, 'success');
-        };
-
-        Markers.updateMarkerNumber = function(marker, newPage) {
-            if (!marker || !marker.isConnected) {
-                console.error('[Edit] Cannot update marker - element invalid or detached');
-                Toast.show('Failed to update marker', 'error');
-                return;
-            }
-
-            var oldPage = marker.getAttribute('data-page') || '?';
-            marker.setAttribute('data-page', newPage);
-            marker.textContent = newPage;
-
-            EventBus.emit('markers:updated', { marker: marker, oldPage: oldPage });
-            Toast.show('Updated marker ' + oldPage + ' \u2192 ' + newPage, 'success');
-        };
-
-        Markers.setupListeners = function(editorEl) {
-            var markers = editorEl.querySelectorAll('.page-marker');
-            markers.forEach(function(marker) {
-                marker.addEventListener('mousedown', DragDrop.startDrag);
-                marker.addEventListener('dblclick', Markers.editMarker);
-            });
-        };
-
-        // ============================================================
-        // SECTION 7: AddMode
-        // ============================================================
-        var AddMode = (function() {
-            var _editor = null;
-
-            function init(editorEl) {
-                _editor = editorEl;
-            }
-
-            function _reset() {
-                // Called on history:restored — exit add mode if active
-                if (State.addMode) {
-                    State.set('addMode', false);
-                    document.getElementById('addModeBtn').classList.remove('active');
-                    _editor.classList.remove('add-mode');
-                    _editor.removeEventListener('mousemove', _onHover);
-                    _editor.removeEventListener('click', _onClick);
-                    _editor.removeEventListener('mouseleave', _clearHighlight);
-                    _clearHighlight();
-                }
-            }
-
-            function toggleAddMode() {
-                State.set('addMode', !State.addMode);
-                document.getElementById('addModeBtn').classList.toggle('active', State.addMode);
-                _editor.classList.toggle('add-mode', State.addMode);
-
-                if (State.addMode) {
-                    _editor.addEventListener('mousemove', _onHover);
-                    _editor.addEventListener('click', _onClick);
-                    _editor.addEventListener('mouseleave', _clearHighlight);
-                    Toast.show('Click on a word to add marker after it', 'success');
-                } else {
-                    _editor.removeEventListener('mousemove', _onHover);
-                    _editor.removeEventListener('click', _onClick);
-                    _editor.removeEventListener('mouseleave', _clearHighlight);
-                    _clearHighlight();
-                }
-            }
-
-            function _clearHighlight() {
-                if (State.highlightedWord) {
-                    if (State.highlightedWord.isConnected) {
-                        var parent = State.highlightedWord.parentNode;
-                        while (State.highlightedWord.firstChild) {
-                            parent.insertBefore(State.highlightedWord.firstChild, State.highlightedWord);
-                        }
-                        parent.removeChild(State.highlightedWord);
-                        parent.normalize();
-                    }
-                    State.set('highlightedWord', null);
-                }
-            }
-
-            function _findWordBoundaries(text, offset) {
-                var start = offset;
-                while (start > 0 && !/\s/.test(text[start - 1])) { start--; }
-                var end = offset;
-                while (end < text.length && !/\s/.test(text[end])) { end++; }
-                return { start: start, end: end };
-            }
-
-            function _getCaretPosition(x, y) {
-                var range;
-                if (document.caretPositionFromPoint) {
-                    var pos = document.caretPositionFromPoint(x, y);
-                    if (pos) { return { node: pos.offsetNode, offset: pos.offset }; }
-                } else if (document.caretRangeFromPoint) {
-                    range = document.caretRangeFromPoint(x, y);
-                    if (range) { return { node: range.startContainer, offset: range.startOffset }; }
-                }
-                return null;
-            }
-
-            function _onHover(e) {
-                if (!State.addMode) return;
-
-                var pos = _getCaretPosition(e.clientX, e.clientY);
-
-                if (!pos || pos.node.nodeType !== Node.TEXT_NODE) {
-                    _clearHighlight();
-                    return;
-                }
-
-                // Don't highlight inside a marker
-                var node = pos.node;
-                while (node && node !== _editor) {
-                    if (node.classList && node.classList.contains('page-marker')) {
-                        _clearHighlight();
-                        return;
-                    }
-                    node = node.parentNode;
-                }
-
-                var textNode = pos.node;
-                var text = textNode.textContent;
-                var boundaries = _findWordBoundaries(text, pos.offset);
-
-                if (boundaries.start === boundaries.end) {
-                    _clearHighlight();
-                    return;
-                }
-
-                var range = document.createRange();
-                range.setStart(textNode, boundaries.start);
-                range.setEnd(textNode, boundaries.end);
-
-                _clearHighlight();
-
-                var wrapper = document.createElement('span');
-                wrapper.className = 'word-highlight';
-                wrapper.dataset.wordStart = boundaries.start;
-                wrapper.dataset.wordEnd = boundaries.end;
-
-                try {
-                    range.surroundContents(wrapper);
-                    State.set('highlightedWord', wrapper);
-                } catch (err) {
-                    console.warn('[Add Mode] Could not highlight word:', err.message);
-                    State.set('highlightedWord', null);
-                }
-            }
-
-            function _getNextPageNumber() {
-                var markers = _editor.querySelectorAll('.page-marker');
-                var maxPage = 0;
-                markers.forEach(function(marker) {
-                    var num = parseInt(marker.getAttribute('data-page'), 10);
-                    if (!isNaN(num) && num > maxPage) { maxPage = num; }
-                });
-                return String(maxPage + 1);
-            }
-
-            function _onClick(e) {
-                if (!State.addMode) return;
-
-                if (e.target.classList && e.target.classList.contains('page-marker')) {
-                    Toast.show('Cannot add marker inside another marker', 'error');
-                    return;
-                }
-
-                if (!State.highlightedWord) {
-                    Toast.show('Click on a word to add marker', 'error');
-                    return;
-                }
-
-                var suggestedPage = _getNextPageNumber();
-                var pageNum = prompt('Enter page number:', suggestedPage);
-
-                if (pageNum === null || pageNum.trim() === '') {
-                    return;
-                }
-
-                _insertMarkerAfterWord(State.highlightedWord, pageNum.trim());
-                toggleAddMode();
-            }
-
-            function _insertMarkerAfterWord(wordWrapper, pageNum) {
-                if (!wordWrapper) {
-                    console.error('[Add Mode] insertMarkerAfterWord called with null wrapper');
-                    Toast.show('Failed to add marker - please try again', 'error');
-                    return;
-                }
-
-                var parent = wordWrapper.parentNode;
-                if (!parent) {
-                    console.error('[Add Mode] Word wrapper has no parent - may have been removed');
-                    Toast.show('Failed to add marker - please try again', 'error');
-                    return;
-                }
-
-                var newMarker = Markers.createMarker(pageNum, 'marker-' + Date.now());
-
-                try {
-                    while (wordWrapper.firstChild) {
-                        parent.insertBefore(wordWrapper.firstChild, wordWrapper);
-                    }
-                    var insertBefore = wordWrapper.nextSibling;
-                    parent.removeChild(wordWrapper);
-                    parent.insertBefore(newMarker, insertBefore);
-                } catch (err) {
-                    console.error('[Add Mode] Failed to insert marker:', err);
-                    Toast.show('Failed to add marker - DOM error', 'error');
-                    return;
-                }
-
-                newMarker.addEventListener('mousedown', DragDrop.startDrag);
-                newMarker.addEventListener('dblclick', Markers.editMarker);
-
-                State.set('highlightedWord', null);
-
-                EventBus.emit('markers:added', { marker: newMarker });
-                Toast.show('Added marker for page ' + pageNum, 'success');
-            }
-
-            EventBus.on('history:restored', _reset);
-
-            return {
-                init: init,
-                toggle: toggleAddMode,
-                clearHighlight: _clearHighlight
-            };
-        })();
-
-        // ============================================================
-        // SECTION 9: Toast
-        // ============================================================
-        var Toast = (function() {
-            var _el = null;
-
-            function init(toastEl) {
-                _el = toastEl;
-            }
-
-            function show(message, type) {
-                _el.textContent = message;
-                _el.className = 'toast' + (type ? ' ' + type : '');
-                _el.classList.add('show');
-                setTimeout(function() { _el.classList.remove('show'); }, 2000);
-            }
-
-            return { init: init, show: show };
-        })();
-
-        // ============================================================
-        // SECTION 10: UI
-        // ============================================================
-        var UI = (function() {
-            var _editor = null;
-            var _statsEl = null;
-            var _zoomLevelEl = null;
-
-            function init(editorEl, statsEl, zoomLevelEl) {
-                _editor = editorEl;
-                _statsEl = statsEl;
-                _zoomLevelEl = zoomLevelEl;
-            }
-
-            function updateStats() {
-                var markers = _editor.querySelectorAll('.page-marker');
-                var count = markers.length;
-                _statsEl.textContent = '';
-                var strong = document.createElement('strong');
-                strong.textContent = count;
-                _statsEl.appendChild(strong);
-                _statsEl.appendChild(document.createTextNode(' page marker' + (count !== 1 ? 's' : '')));
-            }
-
-            function setZoom(value) {
-                var clamped = Math.max(50, Math.min(200, value));
-                State.set('zoom', clamped);
-                _editor.style.fontSize = clamped + '%';
-                _zoomLevelEl.textContent = clamped + '%';
-            }
-
-            return { init: init, updateStats: updateStats, setZoom: setZoom };
-        })();
-
         /**
          * Page Marker Editor - Visual drag-and-drop editor for EPUB page markers
          *
@@ -1282,313 +505,1350 @@
          */
 
         // ============================================================
-        // SECTION 8: Export
+        // STATE MANAGEMENT
         // ============================================================
-        var Export = (function() {
 
-            function _formatTimestamp(date) {
-                var pad = function(n) { return String(n).padStart(2, '0'); };
-                return date.getFullYear() + '-' +
-                    pad(date.getMonth() + 1) + '-' +
-                    pad(date.getDate()) + '_' +
-                    pad(date.getHours()) + '-' +
-                    pad(date.getMinutes());
-            }
+        /** @type {string} Original file name for download naming */
+        var originalFileName = '';
+        /** @type {string} Original HTML content for preserving <head> during export */
+        let originalHTML = '';
 
-            function _buildStrippedText(rootEl) {
-                var walker = document.createTreeWalker(rootEl, NodeFilter.SHOW_TEXT);
-                var parts = [];
-                var node;
-                while ((node = walker.nextNode())) {
-                    if (!node.parentElement.closest('.page-marker, .page-number')) {
-                        parts.push(node.textContent);
-                    }
-                }
-                return parts.join('').replace(/\s+/g, ' ').trim();
-            }
+        /** @type {HTMLElement[]} Stack of editor states for undo/redo (cloned DOM nodes) */
+        let history = [];
 
-            function _showExportToast(successMessage, result) {
-                if (result.skippedMarkers > 0) {
-                    Toast.show(successMessage + ' (' + result.skippedMarkers + ' invalid marker(s) removed)', 'error');
-                } else {
-                    Toast.show(successMessage, 'success');
-                }
-            }
+        /** @type {number} Current position in history stack (-1 = no history) */
+        let historyIndex = -1;
 
-            function prepareExportedBody() {
-                var editorEl = document.getElementById('editor');
-                var container = document.createElement('div');
-                Array.from(editorEl.childNodes).forEach(function(node) {
-                    container.appendChild(node.cloneNode(true));
-                });
+        /** @type {number} Current zoom level as percentage (50-200) */
+        let zoom = 100;
 
-                var markers = container.querySelectorAll('.page-marker');
-                var pageOccurrences = {};
-                var skippedMarkers = 0;
+        /** @type {boolean} Whether add mode is active (for adding new markers) */
+        let addMode = false;
 
-                markers.forEach(function(marker) {
-                    var pageNum = marker.getAttribute('data-page');
+        /** @type {HTMLElement|null} Currently highlighted word element in add mode */
+        let highlightedWord = null;
 
-                    if (!pageNum) {
-                        console.warn('[Export] Skipping marker without page number:', marker);
-                        marker.remove();
-                        skippedMarkers++;
-                        return;
-                    }
+        /** @type {boolean} Whether there are unsaved changes (for refresh warning) */
+        let hasUnsavedChanges = false;
 
-                    pageOccurrences[pageNum] = (pageOccurrences[pageNum] || 0) + 1;
-                    var suffix = pageOccurrences[pageNum] > 1 ? '-' + pageOccurrences[pageNum] : '';
+        /** @type {HTMLElement|null} The marker element currently being dragged */
+        let draggedMarker = null;
 
-                    var newMarker = document.createElement('span');
-                    newMarker.id = 'page' + pageNum + suffix;
-                    newMarker.className = 'page-number';
-                    newMarker.setAttribute('role', 'note');
-                    newMarker.setAttribute('aria-label', 'Page ' + pageNum);
-                    newMarker.textContent = 'σελ. ' + pageNum;
+        /**
+         * Current drop target position
+         * @type {{node: Text, offset: number}|null}
+         * - node: The text node where marker will be inserted
+         * - offset: Character position within the text node
+         */
+        let dropTarget = null;
 
-                    marker.replaceWith(newMarker);
-                });
+        /** @type {string} localStorage key for auto-save */
+        const STORAGE_KEY = 'pageMarkerEditor_autosave';
 
-                // Ensure a single space exists before and after each marker
-                container.querySelectorAll('.page-number').forEach(function(marker) {
-                    var prev = marker.previousSibling;
-                    var next = marker.nextSibling;
+        // ============================================================
+        // UTILITY FUNCTIONS
+        // ============================================================
 
-                    if (prev && prev.nodeType === Node.TEXT_NODE) {
-                        if (prev.textContent.length > 0 && !prev.textContent.endsWith(' ')) {
-                            prev.textContent = prev.textContent + ' ';
-                        }
-                    }
+        /**
+         * Format a Date object as a timestamp string for filenames
+         * Format: YYYY-MM-DD_HH-MM (e.g., 2026-01-21_14-30)
+         *
+         * @param {Date} date - The date to format
+         * @returns {string} Formatted timestamp
+         */
+        function formatTimestamp(date) {
+            const pad = function(n) { return String(n).padStart(2, '0'); };
+            return date.getFullYear() + '-' +
+                pad(date.getMonth() + 1) + '-' +
+                pad(date.getDate()) + '_' +
+                pad(date.getHours()) + '-' +
+                pad(date.getMinutes());
+        }
 
-                    if (next && next.nodeType === Node.TEXT_NODE) {
-                        if (next.textContent.length > 0 && !next.textContent.startsWith(' ')) {
-                            next.textContent = ' ' + next.textContent;
-                        }
-                    }
-                });
 
-                // Clean up any leftover word-highlight spans
-                container.querySelectorAll('.word-highlight, [data-word-start]').forEach(function(span) {
-                    var parent = span.parentNode;
-                    while (span.firstChild) {
-                        parent.insertBefore(span.firstChild, span);
-                    }
-                    parent.removeChild(span);
-                    parent.normalize();
-                });
+        // ============================================================
+        // DOM ELEMENT REFERENCES
+        // ============================================================
 
-                // Collapse double spaces left by marker moves/deletions
-                var walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
-                var textNode;
-                while ((textNode = walker.nextNode())) {
-                    if (/  +/.test(textNode.textContent)) {
-                        textNode.textContent = textNode.textContent.replace(/  +/g, ' ');
-                    }
-                }
+        const fileInput = document.getElementById('fileInput');
+        const editor = document.getElementById('editor');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const copyBodyBtn = document.getElementById('copyBodyBtn');
+        const addModeBtn = document.getElementById('addModeBtn');
+        const undoBtn = document.getElementById('undoBtn');
+        const redoBtn = document.getElementById('redoBtn');
+        const zoomInBtn = document.getElementById('zoomIn');
+        const zoomOutBtn = document.getElementById('zoomOut');
+        const zoomLevelEl = document.getElementById('zoomLevel');
+        const statsEl = document.getElementById('stats');
+        const toastEl = document.getElementById('toast');
+        const dropCursor = document.getElementById('drop-cursor');
 
-                // Diff check (D-05): warn if non-marker text content has changed
-                if (State.originalHTML) {
-                    var originalDoc = (new DOMParser()).parseFromString(State.originalHTML, 'text/html');
-                    var exportedText = _buildStrippedText(container);
-                    var originalText = _buildStrippedText(originalDoc.body);
-                    if (exportedText !== originalText) {
-                        console.warn('[Export] Non-marker content differs from original.');
-                        Toast.show('Warning: content outside markers may have changed', 'error');
-                    }
-                }
+        // ============================================================
+        // FILE LOADING
+        // ============================================================
 
-                return { container: container, skippedMarkers: skippedMarkers };
-            }
+        /**
+         * Handle file input change event
+         * Reads the selected HTML file and loads it into the editor
+         */
+        fileInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
 
-            function download() {
-                var result = prepareExportedBody();
-
-                var parser = new DOMParser();
-                var originalDoc = parser.parseFromString(State.originalHTML, 'text/html');
-
-                originalDoc.body.textContent = '';
-                Array.from(result.container.childNodes).forEach(function(node) {
-                    originalDoc.body.appendChild(node.cloneNode(true));
-                });
-
-                var serializer = new XMLSerializer();
-                var serialized = serializer.serializeToString(originalDoc);
-                serialized = serialized.replace(/^(\s*<!DOCTYPE[^>]*>\s*)/i, '');
-                var doctypeMatch = State.originalHTML.match(/^(\s*<!DOCTYPE[^>]*>\s*)/i);
-                var output = doctypeMatch ? doctypeMatch[1] + serialized : serialized;
-
-                var blob = new Blob([output], { type: 'text/html;charset=utf-8' });
-                var timestamp = _formatTimestamp(new Date());
-                var filename = 'corrected_' + timestamp + '.html';
-
-                var url = URL.createObjectURL(blob);
-                var a = document.createElement('a');
-                a.href = url;
-                a.download = filename;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-
-                State.set('hasUnsavedChanges', false);
-                AutoSave.clear();
-
-                _showExportToast('File downloaded!', result);
-            }
-
-            function copyBody() {
-                if (!navigator.clipboard || !navigator.clipboard.writeText) {
-                    console.warn('[Copy] Clipboard API not available (insecure context or unsupported browser)');
-                    Toast.show('Copy not available in this browser context. Use Download instead.', 'error');
-                    return;
-                }
-
-                var result = prepareExportedBody();
-
-                navigator.clipboard.writeText(result.container.innerHTML).then(function() {
-                    _showExportToast('Body content copied to clipboard!', result);
-                }).catch(function(err) {
-                    console.error('[Copy] Clipboard write failed:', err.name, err.message);
-                    Toast.show('Copy failed: ' + (err.message || 'clipboard not available') + '. Use Download instead.', 'error');
-                });
-            }
-
-            return {
-                prepareExportedBody: prepareExportedBody,
-                download: download,
-                copyBody: copyBody
+            // Use FileReader API to read file contents as text
+            // This works entirely client-side - no server needed
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                originalHTML = e.target.result;  // Store for later export
+                originalFileName = file.name;   // Store for download naming
+                loadContent(originalHTML);
+                showToast('File loaded successfully', 'success');
             };
-        })();
+            reader.onerror = function() {
+                showToast('Error loading file', 'error');
+            };
+            reader.readAsText(file);
+        });
 
-        // ============================================================
-        // SECTION 11: FileLoader
-        // ============================================================
-        var FileLoader = (function() {
-            var _editor = null;
-            var _fileInput = null;
+        /**
+         * Warn user before leaving page with unsaved changes
+         * This prevents accidental loss of work when refreshing or closing the tab
+         */
+        window.addEventListener('beforeunload', function(e) {
+            if (hasUnsavedChanges) {
+                // Standard way to trigger browser's "unsaved changes" warning
+                e.preventDefault();
+                e.returnValue = '';  // Required for Chrome
+                return '';
+            }
+        });
 
-            function init(editorEl, fileInputEl) {
-                _editor = editorEl;
-                _fileInput = fileInputEl;
+        /**
+         * Load and process HTML content into the editor
+         *
+         * This function:
+         * 1. Parses HTML string into a DOM document
+         * 2. Finds all page markers (class="page-number" or role="note")
+         * 3. Converts them to our internal draggable format (class="page-marker")
+         * 4. Copies body content into the editor area
+         * 5. Initializes history for undo/redo
+         *
+         * The marker conversion is necessary because:
+         * - Original markers use semantic HTML (role="note", aria-label)
+         * - Editor markers need drag functionality (data-id, event handlers)
+         * - On export, we convert back to the original semantic format
+         *
+         * @param {string} html - The HTML content to load
+         */
+        function loadContent(html) {
+            // Parse HTML string into a DOM document
+            // DOMParser is safer than innerHTML as it doesn't execute scripts
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+            const body = doc.body;
+
+            if (!body) {
+                showToast('Invalid HTML file', 'error');
+                return;
             }
 
-            function loadContent(html) {
-                var parser = new DOMParser();
-                var doc = parser.parseFromString(html, 'text/html');
-                var body = doc.body;
+            // Convert semantic page markers to draggable editor markers
+            // We look for both class="page-number" and role="note" to be flexible
+            const markers = body.querySelectorAll('.page-number, span[role="note"]');
+            let markerIndex = 0;
+            markers.forEach(function(marker) {
+                // Strip any "σελ. " prefix so data-page always stores the bare number
+                const rawText = marker.textContent.trim();
+                const pageNum = rawText.replace(/^σελ\.\s*/, '');
 
-                if (!body) {
-                    Toast.show('Invalid HTML file', 'error');
+                // Create new marker element with editor-specific attributes
+                const newMarker = document.createElement('span');
+                newMarker.className = 'page-marker';           // CSS styling class
+                newMarker.setAttribute('data-page', pageNum);  // Page number for display/export
+                newMarker.setAttribute('data-id', 'marker-' + markerIndex);  // Unique ID for tracking
+                newMarker.setAttribute('draggable', 'true');   // Enable drag (though we use mouse events)
+                newMarker.textContent = pageNum;
+
+                // Replace original marker with our editor version
+                marker.replaceWith(newMarker);
+                markerIndex++;
+            });
+
+            // Clear editor and copy body content into it
+            // We clone nodes to avoid moving them from the parsed document
+            editor.textContent = '';
+            Array.from(body.childNodes).forEach(function(node) {
+                editor.appendChild(node.cloneNode(true));
+            });
+            editor.classList.remove('empty');
+
+            // Initialize history with current state as the starting point
+            // This enables undo back to the original loaded state
+            history = [editor.cloneNode(true)];
+            historyIndex = 0;
+            updateButtons();
+            updateStats();
+            setupMarkerDragging();
+
+            downloadBtn.disabled = false;
+            copyBodyBtn.disabled = false;
+            addModeBtn.disabled = false;
+        }
+
+        // ============================================================
+        // AUTO-SAVE TO LOCAL STORAGE
+        // ============================================================
+
+        // Track auto-save failures to notify user after repeated issues
+        let autoSaveFailCount = 0;
+        const MAX_AUTOSAVE_FAILS = 3;
+
+        /**
+         * Save current editor state to localStorage
+         * Called after every change to prevent data loss on refresh
+         */
+        function autoSave() {
+            try {
+                const data = {
+                    originalHTML: originalHTML,
+                    editorContent: editor.innerHTML,
+                    timestamp: Date.now()
+                };
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+                autoSaveFailCount = 0;  // Reset on success
+            } catch (e) {
+                autoSaveFailCount++;
+                console.warn('[AutoSave] Failed to save:', e.message);
+
+                // Notify user after repeated failures so they know to save manually
+                if (autoSaveFailCount === MAX_AUTOSAVE_FAILS) {
+                    showToast('Auto-save disabled: ' + e.message + '. Please download your work manually!', 'error');
+                }
+            }
+        }
+
+        /**
+         * Clear saved state from localStorage
+         * Called after successful download
+         */
+        function clearAutoSave() {
+            try {
+                localStorage.removeItem(STORAGE_KEY);
+            } catch (e) {
+                // Non-critical: user can manually clear browser data if needed
+                console.warn('[AutoSave] Failed to clear saved state:', e.message);
+            }
+        }
+
+        /**
+         * Check for and restore saved state on page load
+         * Note: Uses innerHTML to restore user's own saved content from localStorage
+         * This is safe as the content originates from the user's previous session
+         */
+        function checkForSavedState() {
+            let saved;
+            try {
+                saved = localStorage.getItem(STORAGE_KEY);
+            } catch (e) {
+                console.warn('[AutoSave] Cannot access localStorage:', e.message);
+                return;
+            }
+
+            if (!saved) return;
+
+            // Parse saved data with error handling for corrupted JSON
+            let data;
+            try {
+                data = JSON.parse(saved);
+            } catch (e) {
+                console.warn('[AutoSave] Saved data is corrupted, clearing:', e.message);
+                clearAutoSave();
+                return;
+            }
+
+            // Validate required fields exist
+            if (!data.timestamp || !data.editorContent) {
+                console.warn('[AutoSave] Saved data is incomplete, clearing');
+                clearAutoSave();
+                return;
+            }
+
+            const age = Date.now() - data.timestamp;
+
+            // Sanity check: reject data older than 7 days or with future timestamps
+            const MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days
+            if (age < 0 || age > MAX_AGE) {
+                console.warn('[AutoSave] Saved data has invalid timestamp, clearing');
+                clearAutoSave();
+                return;
+            }
+
+            const ageMinutes = Math.floor(age / 60000);
+            const ageText = ageMinutes < 60
+                ? ageMinutes + ' minutes ago'
+                : Math.floor(ageMinutes / 60) + ' hours ago';
+
+            // Show restore prompt
+            if (confirm('⚠️ Found unsaved work from ' + ageText + '.\n\nDo you want to restore it?\n\nClick OK to restore, or Cancel to start fresh.')) {
+                try {
+                    originalHTML = data.originalHTML;
+                    // Restore editor content (user's own saved data from localStorage)
+                    editor.innerHTML = data.editorContent;
+                    editor.classList.remove('empty');
+
+                    // Initialize history and state
+                    history = [editor.cloneNode(true)];
+                    historyIndex = 0;
+                    hasUnsavedChanges = true;
+
+                    updateButtons();
+                    updateStats();
+                    setupMarkerDragging();
+
+                    downloadBtn.disabled = false;
+                    copyBodyBtn.disabled = false;
+                    addModeBtn.disabled = false;
+
+                    showToast('Previous work restored!', 'success');
+                } catch (e) {
+                    console.error('[AutoSave] Failed to apply restored data:', e.message);
+                    showToast('Failed to restore - data may be incompatible', 'error');
+                    clearAutoSave();
+                }
+            } else {
+                // User chose not to restore - clear saved state
+                clearAutoSave();
+            }
+        }
+
+        // Check for saved state on page load
+        checkForSavedState();
+
+        // ============================================================
+        // DRAG AND DROP SYSTEM
+        // ============================================================
+        //
+        // We use a custom mouse event-based drag system instead of the HTML5
+        // Drag and Drop API. This provides better control over text positioning.
+        //
+        // Flow:
+        // 1. mousedown on marker → startDrag() captures the marker
+        // 2. mousemove → onDrag() updates drop cursor position
+        // 3. mouseup → endDrag() moves marker to drop position
+        //
+        // Key insight: We never modify the DOM during dragging. Instead, we
+        // use a CSS-positioned cursor element (#drop-cursor) to show where
+        // the marker will land. DOM changes only happen on drop.
+        // ============================================================
+
+        /**
+         * Attach event listeners to all markers in the editor
+         * Called after loading content or restoring from history
+         */
+        function setupMarkerDragging() {
+            const markers = editor.querySelectorAll('.page-marker');
+            markers.forEach(function(marker) {
+                marker.addEventListener('mousedown', startDrag);
+                marker.addEventListener('dblclick', editMarker);
+            });
+        }
+
+        /**
+         * Handle double-click on a marker to edit or delete it
+         *
+         * @param {MouseEvent} e - The dblclick event on a marker
+         */
+        function editMarker(e) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            // Ensure we have the marker element (handle event bubbling)
+            let marker = e.target;
+            while (marker && !marker.classList.contains('page-marker')) {
+                marker = marker.parentElement;
+            }
+
+            if (!marker) {
+                console.error('[Edit] Double-click event target is not a marker');
+                return;
+            }
+
+            const currentPage = marker.getAttribute('data-page');
+            if (currentPage === null) {
+                console.warn('[Edit] Marker missing data-page attribute');
+                showToast('Marker is corrupted - cannot edit', 'error');
+                return;
+            }
+
+            // Prompt with current value; hint that empty = delete
+            const newPage = prompt(
+                'Edit page number (leave empty to delete):',
+                currentPage
+            );
+
+            // User cancelled
+            if (newPage === null) return;
+
+            const trimmedPage = newPage.trim();
+
+            if (trimmedPage === '') {
+                // Delete the marker
+                deleteMarker(marker);
+            } else if (trimmedPage !== currentPage) {
+                // Update the marker
+                updateMarkerNumber(marker, trimmedPage);
+            }
+            // If same value, do nothing
+        }
+
+        /**
+         * Update a marker's page number
+         *
+         * @param {HTMLElement} marker - The marker to update
+         * @param {string} newPage - The new page number
+         */
+        function updateMarkerNumber(marker, newPage) {
+            if (!marker || !marker.isConnected) {
+                console.error('[Edit] Cannot update marker - element invalid or detached');
+                showToast('Failed to update marker', 'error');
+                return;
+            }
+
+            const oldPage = marker.getAttribute('data-page') || '?';
+            marker.setAttribute('data-page', newPage);
+            marker.textContent = newPage;
+
+            saveState();
+            showToast('Updated marker ' + oldPage + ' → ' + newPage, 'success');
+        }
+
+        /**
+         * Delete a marker from the document
+         *
+         * @param {HTMLElement} marker - The marker to delete
+         */
+        function deleteMarker(marker) {
+            if (!marker) {
+                console.error('[Edit] Cannot delete marker - element is null');
+                showToast('Failed to delete marker', 'error');
+                return;
+            }
+
+            const pageNum = marker.getAttribute('data-page') || '?';
+
+            if (!marker.isConnected) {
+                console.warn('[Edit] Marker already removed from DOM');
+                showToast('Marker already deleted', 'success');
+                return;
+            }
+
+            marker.remove();
+
+            saveState();
+            showToast('Deleted marker ' + pageNum, 'success');
+        }
+
+        /**
+         * Begin dragging a marker
+         * Sets up global mousemove/mouseup listeners for the drag operation
+         *
+         * @param {MouseEvent} e - The mousedown event on a marker
+         */
+        function startDrag(e) {
+            // Only respond to left mouse button
+            if (e.button !== 0) return;
+
+            // Store reference to the marker being dragged
+            draggedMarker = e.target;
+            draggedMarker.classList.add('dragging');  // Visual feedback (opacity)
+
+            // Attach listeners to document (not marker) to track mouse everywhere
+            document.addEventListener('mousemove', onDrag);
+            document.addEventListener('mouseup', endDrag);
+
+            // Prevent text selection while dragging
+            e.preventDefault();
+        }
+
+        /**
+         * Handle mouse movement during drag
+         * Updates the visual drop cursor position based on mouse coordinates.
+         * Snaps to the nearest word boundary so markers always land between words.
+         *
+         * @param {MouseEvent} e - The mousemove event
+         */
+        function onDrag(e) {
+            if (!draggedMarker) return;
+
+            // Get the text position under the cursor
+            const pos = getCaretPosition(e.clientX, e.clientY);
+
+            if (pos && editor.contains(pos.node)) {
+                // Walk up the DOM tree to check if we're inside another marker
+                // We don't want to allow dropping a marker inside itself or another marker
+                let node = pos.node;
+                let insideMarker = false;
+                while (node && node !== editor) {
+                    if (node.classList && node.classList.contains('page-marker')) {
+                        insideMarker = true;
+                        break;
+                    }
+                    node = node.parentNode;
+                }
+
+                // Valid drop target: inside editor, not inside a marker, text node only
+                if (!insideMarker && pos.node.nodeType === Node.TEXT_NODE) {
+                    // Snap to nearest word boundary
+                    var snapped = snapToWordBoundary(pos.node, pos.offset);
+                    dropTarget = snapped;
+                    showDropCursor(snapped);
+                    return;
+                }
+            }
+
+            // Invalid position - hide cursor and clear target
+            dropTarget = null;
+            hideDropCursor();
+        }
+
+        /**
+         * Snap a caret position to the nearest word boundary.
+         * Returns a position at a whitespace gap between words.
+         *
+         * @param {Text} textNode - The text node
+         * @param {number} offset - Raw caret offset
+         * @returns {{node: Text, offset: number}} Snapped position
+         */
+        function snapToWordBoundary(textNode, offset) {
+            var text = textNode.textContent;
+
+            // If already on whitespace, stay there
+            if (offset >= text.length || /\s/.test(text[offset])) {
+                return { node: textNode, offset: offset };
+            }
+
+            // Find the word boundaries around the cursor
+            var boundaries = findWordBoundaries(text, offset);
+
+            // Snap to whichever boundary is closer (start or end of the word)
+            var distToStart = offset - boundaries.start;
+            var distToEnd = boundaries.end - offset;
+
+            var snappedOffset = distToEnd <= distToStart ? boundaries.end : boundaries.start;
+            return { node: textNode, offset: snappedOffset };
+        }
+
+        /**
+         * End the drag operation
+         * If there's a valid drop target, moves the marker there
+         *
+         * @param {MouseEvent} e - The mouseup event
+         */
+        function endDrag(e) {
+            // Clean up event listeners
+            document.removeEventListener('mousemove', onDrag);
+            document.removeEventListener('mouseup', endDrag);
+
+            hideDropCursor();
+
+            if (!draggedMarker) return;
+
+            draggedMarker.classList.remove('dragging');
+
+            // Move marker if we have a valid drop target
+            if (dropTarget && dropTarget.node) {
+                moveMarker(draggedMarker, dropTarget);
+            }
+
+            // Reset drag state
+            draggedMarker = null;
+            dropTarget = null;
+        }
+
+        /**
+         * Get the text position (node + offset) at screen coordinates
+         *
+         * This is the key function that enables precise text positioning.
+         * It uses browser APIs to find the exact character position under the cursor.
+         *
+         * Browser support:
+         * - Firefox: document.caretPositionFromPoint() - returns CaretPosition
+         * - Chrome/Safari: document.caretRangeFromPoint() - returns Range
+         *
+         * @param {number} x - Screen X coordinate
+         * @param {number} y - Screen Y coordinate
+         * @returns {{node: Node, offset: number}|null} Position info or null if not found
+         */
+        function getCaretPosition(x, y) {
+            let range;
+
+            // Firefox uses caretPositionFromPoint
+            if (document.caretPositionFromPoint) {
+                const pos = document.caretPositionFromPoint(x, y);
+                if (pos) {
+                    return { node: pos.offsetNode, offset: pos.offset };
+                }
+            }
+            // Chrome/Safari use caretRangeFromPoint
+            else if (document.caretRangeFromPoint) {
+                range = document.caretRangeFromPoint(x, y);
+                if (range) {
+                    return { node: range.startContainer, offset: range.startOffset };
+                }
+            }
+
+            return null;
+        }
+
+        /**
+         * Show the visual drop cursor at a text position
+         *
+         * The cursor is a CSS-positioned element that floats above the content.
+         * We calculate its position by creating a zero-width Range at the target
+         * position and getting its bounding rectangle.
+         *
+         * Why not just insert an element? Inserting/removing DOM nodes during
+         * drag causes layout thrashing and visual glitches. A positioned element
+         * outside the content flow is much smoother.
+         *
+         * @param {{node: Node, offset: number}} pos - The target position
+         */
+        function showDropCursor(pos) {
+            // Only show cursor for text nodes
+            if (pos.node.nodeType !== Node.TEXT_NODE) {
+                hideDropCursor();
+                return;
+            }
+
+            // Create a zero-width Range to get the caret position's coordinates
+            const range = document.createRange();
+            range.setStart(pos.node, pos.offset);
+            range.setEnd(pos.node, pos.offset);
+
+            // getBoundingClientRect() gives us screen coordinates
+            const rect = range.getBoundingClientRect();
+
+            // Position the cursor element
+            dropCursor.style.left = rect.left + 'px';
+            dropCursor.style.top = rect.top + 'px';
+            dropCursor.style.height = '20px';
+            dropCursor.classList.add('visible');
+        }
+
+        /**
+         * Hide the visual drop cursor
+         */
+        function hideDropCursor() {
+            dropCursor.classList.remove('visible');
+        }
+
+        /**
+         * Move a marker to a new position in the document
+         *
+         * Drop positions are always at word boundaries (snapped during drag).
+         * We split the text node at the boundary and insert the marker between
+         * the two halves. No spacing manipulation needed since the split
+         * happens at existing whitespace gaps.
+         *
+         * @param {HTMLElement} marker - The marker element to move
+         * @param {{node: Text, offset: number}} target - Where to move it (word boundary)
+         */
+        function moveMarker(marker, target) {
+            // Validate: we can only insert into text nodes
+            if (!target.node || target.node.nodeType !== Node.TEXT_NODE) {
+                showToast('Invalid drop position', 'error');
+                return;
+            }
+
+            // Preserve marker attributes for the new element
+            const pageNum = marker.getAttribute('data-page');
+            const markerId = marker.getAttribute('data-id');
+
+            // Create new marker element
+            const newMarker = document.createElement('span');
+            newMarker.className = 'page-marker';
+            newMarker.setAttribute('data-page', pageNum);
+            newMarker.setAttribute('data-id', markerId);
+            newMarker.setAttribute('draggable', 'true');
+            newMarker.textContent = pageNum;
+
+            // Split the text node at the word boundary
+            const textNode = target.node;
+            const offset = target.offset;
+            const parent = textNode.parentNode;
+
+            // Remove old marker first, then normalize its old parent
+            // to merge any leftover text nodes from previous insertions
+            var oldParent = marker.parentNode;
+            marker.remove();
+            if (oldParent && oldParent !== parent) {
+                oldParent.normalize();
+            }
+
+            // If the target text node was removed by normalize (same parent),
+            // re-check validity
+            if (!textNode.isConnected) {
+                showToast('Drop position changed - try again', 'error');
+                return;
+            }
+
+            // Split text node at word boundary and insert marker between halves
+            var afterNode = textNode.splitText(offset);
+            parent.insertBefore(newMarker, afterNode);
+
+            // Attach drag handler to the new marker
+            newMarker.addEventListener('mousedown', startDrag);
+            newMarker.addEventListener('dblclick', editMarker);
+
+            // Save state for undo and notify user
+            saveState();
+            showToast('Marker ' + pageNum + ' moved', 'success');
+        }
+
+        // ============================================================
+        // HISTORY (UNDO/REDO) SYSTEM
+        // ============================================================
+        //
+        // The history system stores complete snapshots of the editor DOM.
+        // This is simpler than tracking individual operations (command pattern)
+        // and ensures perfect restoration of any previous state.
+        //
+        // Trade-off: Uses more memory, but for typical documents with a few
+        // dozen markers, this is negligible. We limit to 50 states max.
+        //
+        // History structure:
+        //   [state0, state1, state2, ...]
+        //           ^
+        //           historyIndex
+        //
+        // - Undo moves historyIndex left
+        // - Redo moves historyIndex right
+        // - New action after undo truncates future states
+        // ============================================================
+
+        /**
+         * Save current editor state to history
+         *
+         * Called after every marker move. Handles the common case where
+         * user undoes something, then makes a new change - we discard
+         * the "future" states that are no longer reachable.
+         */
+        function saveState() {
+            // If we're not at the end of history, truncate future states
+            // This happens when user undoes, then makes a new change
+            if (historyIndex < history.length - 1) {
+                history = history.slice(0, historyIndex + 1);
+            }
+
+            // Clone the entire editor DOM tree
+            // cloneNode(true) performs a deep clone including all children
+            history.push(editor.cloneNode(true));
+            historyIndex = history.length - 1;
+
+            // Prevent unbounded memory growth
+            // Keep maximum 50 states (plenty for typical editing sessions)
+            if (history.length > 50) {
+                history.shift();       // Remove oldest state
+                historyIndex--;        // Adjust index to match
+            }
+
+            // Mark that we have unsaved changes and auto-save
+            hasUnsavedChanges = true;
+            autoSave();
+
+            updateButtons();
+            updateStats();
+        }
+
+        /**
+         * Undo the last action
+         * Restores the previous state from history
+         */
+        function undo() {
+            if (historyIndex > 0) {
+                historyIndex--;
+                restoreState(history[historyIndex]);
+            }
+        }
+
+        /**
+         * Redo a previously undone action
+         * Restores the next state from history
+         */
+        function redo() {
+            if (historyIndex < history.length - 1) {
+                historyIndex++;
+                restoreState(history[historyIndex]);
+            }
+        }
+
+        /**
+         * Restore editor content from a saved state
+         *
+         * @param {HTMLElement} savedEditor - A cloned editor DOM tree
+         */
+        function restoreState(savedEditor) {
+            // Clear current content
+            editor.textContent = '';
+
+            // Clone and insert all child nodes from saved state
+            // We clone again because we might redo back to this state
+            Array.from(savedEditor.childNodes).forEach(function(node) {
+                editor.appendChild(node.cloneNode(true));
+            });
+            editor.classList.remove('empty');
+
+            // Re-attach event listeners to markers (they don't persist in clones)
+            setupMarkerDragging();
+            updateButtons();
+            updateStats();
+        }
+
+        /**
+         * Update undo/redo button enabled states based on history position
+         */
+        function updateButtons() {
+            undoBtn.disabled = historyIndex <= 0;
+            redoBtn.disabled = historyIndex >= history.length - 1;
+        }
+
+        /**
+         * Update the marker count display in the toolbar
+         */
+        function updateStats() {
+            const markers = editor.querySelectorAll('.page-marker');
+            const count = markers.length;
+            statsEl.textContent = '';
+            const strong = document.createElement('strong');
+            strong.textContent = count;
+            statsEl.appendChild(strong);
+            statsEl.appendChild(document.createTextNode(' page marker' + (count !== 1 ? 's' : '')));
+        }
+
+        // ============================================================
+        // ZOOM CONTROLS
+        // ============================================================
+
+        /**
+         * Set the editor zoom level
+         * Clamps value between 50% and 200%
+         *
+         * @param {number} value - Zoom percentage (50-200)
+         */
+        function setZoom(value) {
+            zoom = Math.max(50, Math.min(200, value));
+            editor.style.fontSize = zoom + '%';
+            zoomLevelEl.textContent = zoom + '%';
+        }
+
+        // Zoom button event listeners
+        zoomInBtn.addEventListener('click', function() { setZoom(zoom + 10); });
+        zoomOutBtn.addEventListener('click', function() { setZoom(zoom - 10); });
+
+        // ============================================================
+        // ADD MODE SYSTEM
+        // ============================================================
+        //
+        // Add mode allows users to insert new page markers by clicking on words.
+        // The marker is inserted AFTER the clicked word (word-boundary only).
+        //
+        // Flow:
+        // 1. Click "+ Add Marker" button → toggles add mode
+        // 2. Hover over text → highlights the word under cursor
+        // 3. Click word → prompt for page number → insert marker after word
+        // 4. Click button again or press Escape → exit add mode
+        // ============================================================
+
+        /**
+         * Toggle add mode on/off
+         */
+        function toggleAddMode() {
+            addMode = !addMode;
+            addModeBtn.classList.toggle('active', addMode);
+            editor.classList.toggle('add-mode', addMode);
+
+            if (addMode) {
+                // Attach add mode event listeners
+                editor.addEventListener('mousemove', onAddModeHover);
+                editor.addEventListener('click', onAddModeClick);
+                editor.addEventListener('mouseleave', clearWordHighlight);
+                showToast('Click on a word to add marker after it', 'success');
+            } else {
+                // Remove add mode event listeners
+                editor.removeEventListener('mousemove', onAddModeHover);
+                editor.removeEventListener('click', onAddModeClick);
+                editor.removeEventListener('mouseleave', clearWordHighlight);
+                clearWordHighlight();
+            }
+        }
+
+        /**
+         * Clear the current word highlight
+         */
+        function clearWordHighlight() {
+            if (highlightedWord) {
+                // Unwrap the highlight span back to a plain text node
+                if (highlightedWord.isConnected) {
+                    var parent = highlightedWord.parentNode;
+                    while (highlightedWord.firstChild) {
+                        parent.insertBefore(highlightedWord.firstChild, highlightedWord);
+                    }
+                    parent.removeChild(highlightedWord);
+                    // Merge adjacent text nodes so the DOM stays clean
+                    parent.normalize();
+                }
+                highlightedWord = null;
+            }
+        }
+
+        /**
+         * Find word boundaries at a text position
+         * Returns the start and end offsets of the word containing the given offset
+         *
+         * @param {string} text - The full text content
+         * @param {number} offset - Character offset within the text
+         * @returns {{start: number, end: number}} Word boundary offsets
+         */
+        function findWordBoundaries(text, offset) {
+            // Find start of word (scan backwards)
+            let start = offset;
+            while (start > 0 && !/\s/.test(text[start - 1])) {
+                start--;
+            }
+
+            // Find end of word (scan forwards)
+            let end = offset;
+            while (end < text.length && !/\s/.test(text[end])) {
+                end++;
+            }
+
+            return { start, end };
+        }
+
+        /**
+         * Handle mouse movement in add mode
+         * Highlights the word under the cursor
+         *
+         * @param {MouseEvent} e - The mousemove event
+         */
+        function onAddModeHover(e) {
+            if (!addMode) return;
+
+            // Get caret position under cursor
+            const pos = getCaretPosition(e.clientX, e.clientY);
+
+            if (!pos || pos.node.nodeType !== Node.TEXT_NODE) {
+                clearWordHighlight();
+                return;
+            }
+
+            // Check if we're inside a marker (don't highlight)
+            let node = pos.node;
+            while (node && node !== editor) {
+                if (node.classList && node.classList.contains('page-marker')) {
+                    clearWordHighlight();
+                    return;
+                }
+                node = node.parentNode;
+            }
+
+            const textNode = pos.node;
+            const text = textNode.textContent;
+            const boundaries = findWordBoundaries(text, pos.offset);
+
+            // No word found (clicked on whitespace)
+            if (boundaries.start === boundaries.end) {
+                clearWordHighlight();
+                return;
+            }
+
+            // Create a range for the word to highlight
+            const range = document.createRange();
+            range.setStart(textNode, boundaries.start);
+            range.setEnd(textNode, boundaries.end);
+
+            // Wrap word in a highlight span (temporarily)
+            // First clear any existing highlight
+            clearWordHighlight();
+
+            // Create highlight wrapper
+            const wrapper = document.createElement('span');
+            wrapper.className = 'word-highlight';
+            wrapper.dataset.wordStart = boundaries.start;
+            wrapper.dataset.wordEnd = boundaries.end;
+
+            try {
+                range.surroundContents(wrapper);
+                highlightedWord = wrapper;
+            } catch (err) {
+                // surroundContents can fail if range crosses element boundaries
+                // This is expected for text spanning multiple inline elements
+                console.warn('[Add Mode] Could not highlight word:', err.message);
+                highlightedWord = null;
+            }
+        }
+
+        /**
+         * Handle click in add mode
+         * Inserts a new marker after the clicked word
+         *
+         * @param {MouseEvent} e - The click event
+         */
+        function onAddModeClick(e) {
+            if (!addMode) return;
+
+            // Don't add if clicking on an existing marker
+            if (e.target.classList && e.target.classList.contains('page-marker')) {
+                showToast('Cannot add marker inside another marker', 'error');
+                return;
+            }
+
+            // Give feedback if no word is highlighted (clicked on whitespace)
+            if (!highlightedWord) {
+                showToast('Click on a word to add marker', 'error');
+                return;
+            }
+
+            // Get suggested page number (highest existing + 1)
+            const suggestedPage = getNextPageNumber();
+
+            // Prompt for page number
+            const pageNum = prompt('Enter page number:', suggestedPage);
+
+            if (pageNum === null || pageNum.trim() === '') {
+                // User cancelled
+                return;
+            }
+
+            // Insert marker after the highlighted word
+            insertMarkerAfterWord(highlightedWord, pageNum.trim());
+
+            // Exit add mode after successful insertion
+            toggleAddMode();
+        }
+
+        /**
+         * Get the next suggested page number
+         * Returns the highest existing page number + 1
+         *
+         * @returns {string} Suggested page number
+         */
+        function getNextPageNumber() {
+            const markers = editor.querySelectorAll('.page-marker');
+            let maxPage = 0;
+
+            markers.forEach(function(marker) {
+                const num = parseInt(marker.getAttribute('data-page'), 10);
+                if (!isNaN(num) && num > maxPage) {
+                    maxPage = num;
+                }
+            });
+
+            return String(maxPage + 1);
+        }
+
+        /**
+         * Insert a new marker after a word element
+         *
+         * @param {HTMLElement} wordWrapper - The highlighted word span
+         * @param {string} pageNum - The page number for the new marker
+         */
+        function insertMarkerAfterWord(wordWrapper, pageNum) {
+            // Validate inputs
+            if (!wordWrapper) {
+                console.error('[Add Mode] insertMarkerAfterWord called with null wrapper');
+                showToast('Failed to add marker - please try again', 'error');
+                return;
+            }
+
+            const parent = wordWrapper.parentNode;
+            if (!parent) {
+                console.error('[Add Mode] Word wrapper has no parent - may have been removed');
+                showToast('Failed to add marker - please try again', 'error');
+                return;
+            }
+
+            // Generate unique marker ID
+            const markerId = 'marker-' + Date.now();
+
+            // Create new marker element
+            const newMarker = document.createElement('span');
+            newMarker.className = 'page-marker';
+            newMarker.setAttribute('data-page', pageNum);
+            newMarker.setAttribute('data-id', markerId);
+            newMarker.setAttribute('draggable', 'true');
+            newMarker.textContent = pageNum;
+
+            try {
+                // Unwrap the word highlight back to text, then insert marker after it
+                while (wordWrapper.firstChild) {
+                    parent.insertBefore(wordWrapper.firstChild, wordWrapper);
+                }
+                // Insert marker right after the unwrapped word text
+                var insertBefore = wordWrapper.nextSibling;
+                parent.removeChild(wordWrapper);
+                parent.insertBefore(newMarker, insertBefore);
+            } catch (err) {
+                console.error('[Add Mode] Failed to insert marker:', err);
+                showToast('Failed to add marker - DOM error', 'error');
+                return;
+            }
+
+            // Attach drag handler
+            newMarker.addEventListener('mousedown', startDrag);
+            newMarker.addEventListener('dblclick', editMarker);
+
+            // Clear highlight reference
+            highlightedWord = null;
+
+            // Save state for undo
+            saveState();
+            showToast('Added marker for page ' + pageNum, 'success');
+        }
+
+        // Add mode button click handler
+        addModeBtn.addEventListener('click', toggleAddMode);
+
+        // Escape key exits add mode
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && addMode) {
+                toggleAddMode();
+            }
+        });
+
+        // ============================================================
+        // EVENT LISTENERS
+        // ============================================================
+
+        // Undo/Redo button clicks
+        undoBtn.addEventListener('click', undo);
+        redoBtn.addEventListener('click', redo);
+
+        // Keyboard shortcuts (Ctrl+Z / Ctrl+Y or Cmd+Z / Cmd+Y on Mac)
+        document.addEventListener('keydown', function(e) {
+            if (e.ctrlKey || e.metaKey) {
+                if (e.key === 'z') {
+                    e.preventDefault();
+                    undo();
+                } else if (e.key === 'y') {
+                    e.preventDefault();
+                    redo();
+                }
+            }
+        });
+
+        // ============================================================
+        // EXPORT HELPERS
+        // ============================================================
+
+        /**
+         * Clone editor content and convert markers to semantic EPUB format.
+         *
+         * Editor format:  <span class="page-marker" data-page="5">5</span>
+         * Export format:   <span id="page5" class="page-number" role="note" aria-label="Page 5">5</span>
+         *
+         * Handles duplicate page numbers (two-column layouts) by suffixing IDs:
+         *   page36, page36-2, page36-3, etc.
+         *
+         * @returns {{ container: HTMLDivElement, skippedMarkers: number }}
+         */
+        function prepareExportedBody() {
+            var container = document.createElement('div');
+            Array.from(editor.childNodes).forEach(function(node) {
+                container.appendChild(node.cloneNode(true));
+            });
+
+            var markers = container.querySelectorAll('.page-marker');
+            var pageOccurrences = {};
+            var skippedMarkers = 0;
+
+            markers.forEach(function(marker) {
+                var pageNum = marker.getAttribute('data-page');
+
+                if (!pageNum) {
+                    console.warn('[Export] Skipping marker without page number:', marker);
+                    marker.remove();
+                    skippedMarkers++;
                     return;
                 }
 
-                var markers = body.querySelectorAll('.page-number, span[role="note"]');
-                var markerIndex = 0;
-                markers.forEach(function(marker) {
-                    var rawText = marker.textContent.trim();
-                    var pageNum = rawText.replace(/^σελ\.\s*/, '');
-                    var newMarker = Markers.createMarker(pageNum, 'marker-' + markerIndex);
-                    marker.replaceWith(newMarker);
-                    markerIndex++;
-                });
+                pageOccurrences[pageNum] = (pageOccurrences[pageNum] || 0) + 1;
+                var suffix = pageOccurrences[pageNum] > 1 ? '-' + pageOccurrences[pageNum] : '';
 
-                _editor.textContent = '';
-                Array.from(body.childNodes).forEach(function(node) {
-                    _editor.appendChild(node.cloneNode(true));
-                });
-                _editor.classList.remove('empty');
+                var newMarker = document.createElement('span');
+                newMarker.id = 'page' + pageNum + suffix;
+                newMarker.className = 'page-number';
+                newMarker.setAttribute('role', 'note');
+                newMarker.setAttribute('aria-label', 'Page ' + pageNum);
+                newMarker.textContent = 'σελ. ' + pageNum;
 
-                History.reset(_editor);
-                Markers.setupListeners(_editor);
-                UI.updateStats();
-
-                document.getElementById('downloadBtn').disabled = false;
-                document.getElementById('copyBodyBtn').disabled = false;
-                document.getElementById('addModeBtn').disabled = false;
-            }
-
-            function _attachFileInput() {
-                _fileInput.addEventListener('change', function(e) {
-                    var file = e.target.files[0];
-                    if (!file) return;
-                    var reader = new FileReader();
-                    reader.onload = function(ev) {
-                        State.set('originalHTML', ev.target.result);
-                        State.set('originalFileName', file.name);
-                        loadContent(State.originalHTML);
-                        EventBus.emit('file:loaded', { html: State.originalHTML, fileName: State.originalFileName });
-                        Toast.show('File loaded successfully', 'success');
-                    };
-                    reader.onerror = function() { Toast.show('Error loading file', 'error'); };
-                    reader.readAsText(file);
-                });
-            }
-
-            // Subscribe History.reset and module re-init to file:loaded
-            EventBus.on('file:loaded', function() {
-                History.reset(_editor);
-                DragDrop.init(_editor);
-                AddMode.init(_editor);
+                marker.replaceWith(newMarker);
             });
 
-            return { init: init, loadContent: loadContent, attachFileInput: _attachFileInput };
-        })();
+            // Ensure a single space exists before and after each marker.
+            // Done at export time (on the cloned DOM) so drag/drop never
+            // accumulates orphan spaces in the live editor.
+            container.querySelectorAll('.page-number').forEach(function(marker) {
+                var prev = marker.previousSibling;
+                var next = marker.nextSibling;
 
-        // ============================================================
-        // SECTION 12: Init
-        // ============================================================
-        // SECTION ORDER IS LOAD ORDER — do not reorder
-        // All subscriber registrations happen here before checkForSavedState() fires
+                // Space before marker
+                if (prev && prev.nodeType === Node.TEXT_NODE) {
+                    if (prev.textContent.length > 0 && !prev.textContent.endsWith(' ')) {
+                        prev.textContent = prev.textContent + ' ';
+                    }
+                }
 
-        (function() {
-            var editor      = document.getElementById('editor');
-            var fileInput   = document.getElementById('fileInput');
-            var downloadBtn = document.getElementById('downloadBtn');
-            var copyBodyBtn = document.getElementById('copyBodyBtn');
-            var addModeBtn  = document.getElementById('addModeBtn');
-            var undoBtn     = document.getElementById('undoBtn');
-            var redoBtn     = document.getElementById('redoBtn');
-            var zoomIn      = document.getElementById('zoomIn');
-            var zoomOut     = document.getElementById('zoomOut');
-            var zoomLevel   = document.getElementById('zoomLevel');
-            var statsEl     = document.getElementById('stats');
-            var toastEl     = document.getElementById('toast');
-
-            // Initialize all modules
-            Toast.init(toastEl);
-            UI.init(editor, statsEl, zoomLevel);
-            DragDrop.init(editor);
-            AddMode.init(editor);
-            FileLoader.init(editor, fileInput);
-            FileLoader.attachFileInput();
-
-            // Button event listeners
-            undoBtn.addEventListener('click', function() { History.undo(); });
-            redoBtn.addEventListener('click', function() { History.redo(); });
-            addModeBtn.addEventListener('click', function() { AddMode.toggle(); });
-            downloadBtn.addEventListener('click', function() { Export.download(); });
-            copyBodyBtn.addEventListener('click', function() { Export.copyBody(); });
-            zoomIn.addEventListener('click', function() { UI.setZoom(State.zoom + 10); });
-            zoomOut.addEventListener('click', function() { UI.setZoom(State.zoom - 10); });
-
-            // Keyboard shortcuts
-            document.addEventListener('keydown', function(e) {
-                if (e.key === 'Escape' && State.addMode) { AddMode.toggle(); }
-                if (e.ctrlKey || e.metaKey) {
-                    if (e.key === 'z') { e.preventDefault(); History.undo(); }
-                    if (e.key === 'y') { e.preventDefault(); History.redo(); }
+                // Space after marker
+                if (next && next.nodeType === Node.TEXT_NODE) {
+                    if (next.textContent.length > 0 && !next.textContent.startsWith(' ')) {
+                        next.textContent = ' ' + next.textContent;
+                    }
                 }
             });
 
-            // Unsaved changes warning
-            window.addEventListener('beforeunload', function(e) {
-                if (State.hasUnsavedChanges) { e.preventDefault(); e.returnValue = ''; return ''; }
+            // Clean up any leftover word-highlight spans (editor artifacts)
+            container.querySelectorAll('.word-highlight, [data-word-start]').forEach(function(span) {
+                var parent = span.parentNode;
+                while (span.firstChild) {
+                    parent.insertBefore(span.firstChild, span);
+                }
+                parent.removeChild(span);
+                parent.normalize();
             });
 
-            // Check for saved state LAST — after all subscriptions are registered
-            AutoSave.checkForSavedState();
-        })();
+            // Collapse double spaces left by marker moves/deletions
+            var walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+            var textNode;
+            while ((textNode = walker.nextNode())) {
+                if (/  +/.test(textNode.textContent)) {
+                    textNode.textContent = textNode.textContent.replace(/  +/g, ' ');
+                }
+            }
 
+            return { container: container, skippedMarkers: skippedMarkers };
+        }
+
+        /**
+         * Show a toast after an export action, appending a warning if markers
+         * were skipped during conversion.
+         *
+         * @param {string} successMessage - Message shown when export succeeds cleanly
+         * @param {{ skippedMarkers: number }} result - Return value from prepareExportedBody
+         */
+        function showExportToast(successMessage, result) {
+            if (result.skippedMarkers > 0) {
+                showToast(successMessage + ' (' + result.skippedMarkers + ' invalid marker(s) removed)', 'error');
+            } else {
+                showToast(successMessage, 'success');
+            }
+        }
+
+        // ============================================================
+        // DOWNLOAD / EXPORT
+        // ============================================================
+
+        /**
+         * Download button click handler
+         *
+         * Exports the edited content as an HTML file. The process:
+         *
+         * 1. Parse the original HTML to preserve <head> and other metadata
+         * 2. Prepare exported body (clone + convert markers via prepareExportedBody)
+         * 3. Replace body content in original document
+         * 4. Serialize to HTML string and trigger download
+         *
+         * NOTE: XMLSerializer may reformat the HTML (reorder attributes,
+         * collapse whitespace). The semantic content is preserved.
+         */
+        downloadBtn.addEventListener('click', function() {
+            var result = prepareExportedBody();
+
+            // Parse original HTML to preserve <head> section
+            var parser = new DOMParser();
+            var originalDoc = parser.parseFromString(originalHTML, 'text/html');
+
+            // Replace body content in original document structure
+            originalDoc.body.textContent = '';
+            Array.from(result.container.childNodes).forEach(function(node) {
+                originalDoc.body.appendChild(node.cloneNode(true));
+            });
+
+            // Serialize document to HTML string, preserving original DOCTYPE exactly
+            var serializer = new XMLSerializer();
+            var serialized = serializer.serializeToString(originalDoc);
+            // XMLSerializer may emit its own DOCTYPE — strip it so we can use the original
+            serialized = serialized.replace(/^(\s*<!DOCTYPE[^>]*>\s*)/i, '');
+            var doctypeMatch = originalHTML.match(/^(\s*<!DOCTYPE[^>]*>\s*)/i);
+            var output = doctypeMatch ? doctypeMatch[1] + serialized : serialized;
+
+            // Trigger file download using Blob and temporary link
+            var blob = new Blob([output], { type: 'text/html;charset=utf-8' });
+            var filename = originalFileName.replace(/\.html?$/i, '') + '-paginated.html';
+
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            // Clear unsaved changes flag and auto-save after successful download
+            hasUnsavedChanges = false;
+            clearAutoSave();
+
+            showExportToast('File downloaded!', result);
+        });
+
+        // ============================================================
+        // COPY BODY CONTENT TO CLIPBOARD
+        // ============================================================
+
+        /**
+         * Copy the inner body content (with converted markers) to clipboard.
+         * Unlike download, this gives just the body innerHTML -- no <html>,
+         * <head>, <body> wrapper -- ready to paste into another document.
+         */
+        copyBodyBtn.addEventListener('click', function() {
+            if (!navigator.clipboard || !navigator.clipboard.writeText) {
+                console.warn('[Copy] Clipboard API not available (insecure context or unsupported browser)');
+                showToast('Copy not available in this browser context. Use Download instead.', 'error');
+                return;
+            }
+
+            var result = prepareExportedBody();
+
+            navigator.clipboard.writeText(result.container.innerHTML).then(function() {
+                showExportToast('Body content copied to clipboard!', result);
+            }).catch(function(err) {
+                console.error('[Copy] Clipboard write failed:', err.name, err.message);
+                showToast('Copy failed: ' + (err.message || 'clipboard not available') + '. Use Download instead.', 'error');
+            });
+        });
+
+        // ============================================================
+        // TOAST NOTIFICATIONS
+        // ============================================================
+
+        /**
+         * Show a temporary notification toast
+         *
+         * @param {string} message - The message to display
+         * @param {string} [type] - Optional type: 'success' or 'error' for styling
+         */
+        function showToast(message, type) {
+            toastEl.textContent = message;
+            toastEl.className = 'toast' + (type ? ' ' + type : '');
+            toastEl.classList.add('show');
+
+            // Auto-hide after 2 seconds
+            setTimeout(function() {
+                toastEl.classList.remove('show');
+            }, 2000);
+        }
     </script>
 </body>
 </html>
