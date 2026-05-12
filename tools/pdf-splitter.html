@@ -1,0 +1,929 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Splitter - RX Page Marker</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.mjs" type="module"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+    <style>
+        * { box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: #f5f5f5;
+            color: #333;
+        }
+
+        /* ==================== HEADER ==================== */
+        .header {
+            background: linear-gradient(135deg, #2c3e50, #3498db);
+            color: white;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        }
+
+        .header h1 { margin: 0 0 5px 0; font-size: 24px; }
+        .header p { margin: 0; opacity: 0.9; font-size: 14px; }
+
+        /* ==================== TOOLBAR ==================== */
+        .toolbar {
+            background: white;
+            padding: 15px 20px;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+            border-bottom: 1px solid #ddd;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .toolbar button, .toolbar label {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .btn-primary { background: #3498db; color: white; }
+        .btn-primary:hover { background: #2980b9; }
+        .btn-primary:disabled { background: #bdc3c7; cursor: not-allowed; }
+        .btn-success { background: #27ae60; color: white; }
+        .btn-success:hover { background: #219a52; }
+        .btn-success:disabled { background: #bdc3c7; cursor: not-allowed; }
+        .btn-secondary { background: #95a5a6; color: white; }
+        .btn-secondary:hover { background: #7f8c8d; }
+
+        #fileInput { display: none; }
+
+        .file-label {
+            background: #3498db;
+            color: white;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .file-label:hover { background: #2980b9; }
+
+        .stats {
+            margin-left: auto;
+            font-size: 14px;
+            color: #666;
+        }
+        .stats strong { color: #27ae60; }
+
+        /* ==================== MAIN LAYOUT ==================== */
+        .main {
+            display: flex;
+            height: calc(100vh - 140px);
+        }
+
+        /* ==================== SIDEBAR ==================== */
+        .sidebar {
+            width: 300px;
+            background: white;
+            padding: 20px;
+            border-right: 1px solid #ddd;
+            overflow-y: auto;
+        }
+
+        .sidebar h3 {
+            margin: 0 0 15px 0;
+            color: #2c3e50;
+            font-size: 16px;
+        }
+
+        .sidebar section {
+            margin-bottom: 24px;
+        }
+
+        .sidebar section h4 {
+            margin: 0 0 10px 0;
+            color: #555;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .field-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .field-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .field-row label {
+            font-size: 13px;
+            color: #555;
+            white-space: nowrap;
+            min-width: 100px;
+        }
+
+        .field-row input {
+            width: 80px;
+            padding: 6px 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+            text-align: center;
+        }
+
+        .field-row input:focus {
+            outline: none;
+            border-color: #3498db;
+            box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
+        }
+
+        .offset-display {
+            background: #e8f6fd;
+            border-left: 3px solid #3498db;
+            padding: 10px;
+            font-size: 13px;
+            line-height: 1.5;
+            margin-top: 8px;
+        }
+
+        .offset-display code {
+            background: #d5eef9;
+            padding: 1px 5px;
+            border-radius: 3px;
+            font-weight: 600;
+        }
+
+        .range-inputs {
+            background: #f8f9fa;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            padding: 12px;
+        }
+
+        .range-inputs .field-row input {
+            width: 70px;
+        }
+
+        .range-hint {
+            font-size: 12px;
+            color: #888;
+            margin-top: 6px;
+        }
+
+        .zone-legend {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-top: 10px;
+        }
+
+        .zone-legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+        }
+
+        .zone-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 3px;
+            flex-shrink: 0;
+        }
+
+        .zone-dot.frontmatter { background: #e74c3c; opacity: 0.4; }
+        .zone-dot.content { background: #27ae60; opacity: 0.4; }
+        .zone-dot.backmatter { background: #e74c3c; opacity: 0.4; }
+        .zone-dot.selected { background: #3498db; }
+
+        .instructions-text {
+            font-size: 13px;
+            line-height: 1.6;
+            color: #555;
+        }
+
+        .instructions-text ol {
+            padding-left: 18px;
+            margin: 8px 0;
+        }
+
+        .instructions-text li {
+            margin-bottom: 6px;
+        }
+
+        .tip {
+            background: #e8f6fd;
+            border-left: 3px solid #3498db;
+            padding: 10px;
+            margin-top: 12px;
+            font-size: 13px;
+        }
+
+        /* ==================== PAGE GRID ==================== */
+        .grid-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+        }
+
+        .page-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+            gap: 16px;
+        }
+
+        .page-card {
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            overflow: hidden;
+            cursor: pointer;
+            transition: all 0.15s;
+            position: relative;
+        }
+
+        .page-card:hover {
+            border-color: #3498db;
+            box-shadow: 0 2px 8px rgba(52, 152, 219, 0.3);
+        }
+
+        .page-card.selected {
+            border-color: #3498db;
+            background: #e8f6fd;
+            box-shadow: 0 2px 8px rgba(52, 152, 219, 0.4);
+        }
+
+        .page-card.frontmatter {
+            opacity: 0.5;
+            border-color: #e74c3c;
+        }
+
+        .page-card.backmatter {
+            opacity: 0.5;
+            border-color: #e74c3c;
+        }
+
+        .page-card.frontmatter.selected,
+        .page-card.backmatter.selected {
+            opacity: 1;
+        }
+
+        .page-card canvas {
+            width: 100%;
+            display: block;
+        }
+
+        .page-label {
+            padding: 6px 8px;
+            text-align: center;
+            font-size: 12px;
+            background: #f8f9fa;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .page-label .pdf-page {
+            color: #888;
+        }
+
+        .page-label .print-page {
+            color: #2c3e50;
+            font-weight: 600;
+        }
+
+        .page-card.selected .page-label {
+            background: #3498db;
+            border-top-color: #2980b9;
+        }
+
+        .page-card.selected .page-label .pdf-page,
+        .page-card.selected .page-label .print-page {
+            color: white;
+        }
+
+        .page-card .zone-tag {
+            position: absolute;
+            top: 4px;
+            right: 4px;
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .page-card.frontmatter .zone-tag {
+            background: rgba(231, 76, 60, 0.8);
+            color: white;
+        }
+
+        .page-card.backmatter .zone-tag {
+            background: rgba(231, 76, 60, 0.8);
+            color: white;
+        }
+
+        /* ==================== EMPTY STATE ==================== */
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: #999;
+            text-align: center;
+        }
+
+        .empty-state .icon {
+            font-size: 64px;
+            margin-bottom: 16px;
+        }
+
+        /* ==================== TOAST ==================== */
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #2c3e50;
+            color: white;
+            padding: 12px 20px;
+            border-radius: 6px;
+            font-size: 14px;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all 0.3s;
+            z-index: 1000;
+            max-width: 400px;
+        }
+
+        .toast.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .toast.error {
+            background: #e74c3c;
+        }
+
+        /* ==================== LOADING ==================== */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.9);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 999;
+        }
+
+        .loading-overlay.hidden { display: none; }
+
+        .loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #e0e0e0;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-bottom: 16px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            font-size: 16px;
+            color: #555;
+        }
+
+        /* ==================== RESPONSIVE ==================== */
+        @media (max-width: 768px) {
+            .sidebar { display: none; }
+            .page-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1>PDF Splitter</h1>
+    <p>Visually select page ranges and extract them as new PDFs</p>
+</div>
+
+<div class="toolbar">
+    <input type="file" id="fileInput" accept=".pdf">
+    <label for="fileInput" class="toolbar-btn file-label">Load PDF</label>
+    <button id="btnSelectAll" class="btn-secondary" disabled>Select All Content</button>
+    <button id="btnClearSelection" class="btn-secondary" disabled>Clear Selection</button>
+    <button id="btnDownload" class="btn-success" disabled>Download Selected Pages</button>
+    <span class="stats" id="stats"></span>
+</div>
+
+<div class="main">
+    <div class="sidebar">
+        <section>
+            <h3>Page Offset</h3>
+            <div class="field-group">
+                <div class="field-row">
+                    <label>PDF page</label>
+                    <input type="number" id="pdfPageRef" min="1" value="5" placeholder="5">
+                </div>
+                <div class="field-row">
+                    <label>= Print page</label>
+                    <input type="number" id="printPageRef" min="1" value="81" placeholder="81">
+                </div>
+            </div>
+            <div class="offset-display" id="offsetDisplay">
+                Offset: <code>76</code><br>
+                PDF page 5 = print page 81
+            </div>
+        </section>
+
+        <section>
+            <h4>Page Zones</h4>
+            <div class="field-group">
+                <div class="field-row">
+                    <label>Content starts</label>
+                    <input type="number" id="contentStart" min="1" value="5" placeholder="5">
+                </div>
+                <div class="field-row">
+                    <label>Content ends</label>
+                    <input type="number" id="contentEnd" min="1" value="" placeholder="last">
+                </div>
+            </div>
+            <div class="range-hint">PDF page numbers. Pages outside this range are dimmed.</div>
+            <div class="zone-legend">
+                <div class="zone-legend-item"><span class="zone-dot frontmatter"></span> Front/back matter</div>
+                <div class="zone-legend-item"><span class="zone-dot content"></span> Content zone</div>
+                <div class="zone-legend-item"><span class="zone-dot selected"></span> Selected for export</div>
+            </div>
+        </section>
+
+        <section>
+            <h4>Select by Print Pages</h4>
+            <div class="range-inputs">
+                <div class="field-group">
+                    <div class="field-row">
+                        <label>From print page</label>
+                        <input type="number" id="rangeStart" min="1" placeholder="81">
+                    </div>
+                    <div class="field-row">
+                        <label>To print page</label>
+                        <input type="number" id="rangeEnd" min="1" placeholder="95">
+                    </div>
+                </div>
+                <button id="btnApplyRange" class="btn-primary" style="width:100%;padding:8px" disabled>Apply Range</button>
+            </div>
+        </section>
+
+        <section>
+            <h4>How to Use</h4>
+            <div class="instructions-text">
+                <ol>
+                    <li>Load a PDF file</li>
+                    <li>Set the page offset (which PDF page = which print page)</li>
+                    <li>Mark front/back matter zones</li>
+                    <li>Click pages to select, or type a print page range</li>
+                    <li>Download selected pages</li>
+                </ol>
+                <div class="tip">
+                    <strong>Tip:</strong> Hold <strong>Shift</strong> and click to select a range between last clicked and current page.
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <div class="grid-container" id="gridContainer">
+        <div class="empty-state" id="emptyState">
+            <div class="icon">&#128196;</div>
+            <p>Load a PDF to get started</p>
+            <p style="font-size:13px;color:#bbb">Pages will appear here as thumbnails</p>
+        </div>
+        <div class="page-grid" id="pageGrid"></div>
+    </div>
+</div>
+
+<div class="loading-overlay hidden" id="loading">
+    <div class="loading-spinner"></div>
+    <div class="loading-text" id="loadingText">Loading PDF...</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script type="module">
+    // ==================== PDF.JS SETUP ====================
+    const pdfjsLib = await import('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.mjs');
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.mjs';
+
+    // ==================== STATE ====================
+    let pdfDoc = null;
+    let pdfBytes = null;
+    let totalPages = 0;
+    let selectedPages = new Set();  // 1-indexed PDF page numbers
+    let lastClickedPage = null;
+    let fileName = '';
+
+    // ==================== DOM REFS ====================
+    const fileInput = document.getElementById('fileInput');
+    const pageGrid = document.getElementById('pageGrid');
+    const emptyState = document.getElementById('emptyState');
+    const statsEl = document.getElementById('stats');
+    const loading = document.getElementById('loading');
+    const loadingText = document.getElementById('loadingText');
+    const toastEl = document.getElementById('toast');
+
+    const pdfPageRef = document.getElementById('pdfPageRef');
+    const printPageRef = document.getElementById('printPageRef');
+    const offsetDisplay = document.getElementById('offsetDisplay');
+    const contentStart = document.getElementById('contentStart');
+    const contentEnd = document.getElementById('contentEnd');
+    const rangeStart = document.getElementById('rangeStart');
+    const rangeEnd = document.getElementById('rangeEnd');
+
+    const btnSelectAll = document.getElementById('btnSelectAll');
+    const btnClearSelection = document.getElementById('btnClearSelection');
+    const btnDownload = document.getElementById('btnDownload');
+    const btnApplyRange = document.getElementById('btnApplyRange');
+
+    // ==================== OFFSET CALCULATION ====================
+    function getOffset() {
+        const pdfP = parseInt(pdfPageRef.value) || 0;
+        const printP = parseInt(printPageRef.value) || 0;
+        return printP - pdfP;
+    }
+
+    function pdfToPrint(pdfPage) {
+        return pdfPage + getOffset();
+    }
+
+    function printToPdf(printPage) {
+        return printPage - getOffset();
+    }
+
+    function updateOffsetDisplay() {
+        const offset = getOffset();
+        const pdfP = pdfPageRef.value || '?';
+        const printP = printPageRef.value || '?';
+
+        // Build offset display using safe DOM methods
+        offsetDisplay.textContent = '';
+        const line1 = document.createElement('span');
+        line1.textContent = 'Offset: ';
+        const codeEl = document.createElement('code');
+        codeEl.textContent = String(offset);
+        offsetDisplay.appendChild(line1);
+        offsetDisplay.appendChild(codeEl);
+        offsetDisplay.appendChild(document.createElement('br'));
+        const line2 = document.createTextNode('PDF page ' + pdfP + ' = print page ' + printP);
+        offsetDisplay.appendChild(line2);
+
+        // Auto-sync: the offset reference PDF page is typically where content starts
+        const pdfRef = parseInt(pdfPageRef.value);
+        if (pdfRef && pdfRef >= 1) {
+            contentStart.value = pdfRef;
+        }
+
+        updateAllLabels();
+    }
+
+    // ==================== ZONE HELPERS ====================
+    function getContentStartPage() {
+        return parseInt(contentStart.value) || 1;
+    }
+
+    function getContentEndPage() {
+        return parseInt(contentEnd.value) || totalPages;
+    }
+
+    function getZone(pdfPage) {
+        if (pdfPage < getContentStartPage()) return 'frontmatter';
+        if (pdfPage > getContentEndPage()) return 'backmatter';
+        return 'content';
+    }
+
+    // ==================== TOAST ====================
+    let toastTimeout = null;
+    function showToast(msg, isError) {
+        toastEl.textContent = msg;
+        toastEl.className = 'toast show' + (isError ? ' error' : '');
+        clearTimeout(toastTimeout);
+        toastTimeout = setTimeout(function() { toastEl.className = 'toast'; }, 3000);
+    }
+
+    // ==================== STATS ====================
+    function updateStats() {
+        if (!totalPages) {
+            statsEl.textContent = '';
+            return;
+        }
+        const count = selectedPages.size;
+        statsEl.textContent = '';
+        const strong = document.createElement('strong');
+        strong.textContent = String(count);
+        statsEl.appendChild(strong);
+        statsEl.appendChild(document.createTextNode(' of ' + totalPages + ' pages selected'));
+        btnDownload.disabled = count === 0;
+        btnClearSelection.disabled = count === 0;
+    }
+
+    // ==================== RENDER THUMBNAIL ====================
+    async function renderThumbnail(pageNum, canvas) {
+        const page = await pdfDoc.getPage(pageNum);
+        const viewport = page.getViewport({ scale: 0.3 });
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        const ctx = canvas.getContext('2d');
+        await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+    }
+
+    // ==================== UPDATE CARD STATE ====================
+    function updateCardState(card, pdfPage) {
+        const zone = getZone(pdfPage);
+        card.classList.remove('frontmatter', 'backmatter', 'selected');
+        if (zone === 'frontmatter') card.classList.add('frontmatter');
+        if (zone === 'backmatter') card.classList.add('backmatter');
+        if (selectedPages.has(pdfPage)) card.classList.add('selected');
+
+        // Zone tag
+        var tag = card.querySelector('.zone-tag');
+        if (zone !== 'content') {
+            if (!tag) {
+                tag = document.createElement('span');
+                tag.className = 'zone-tag';
+                card.appendChild(tag);
+            }
+            tag.textContent = zone === 'frontmatter' ? 'Front' : 'Back';
+        } else if (tag) {
+            tag.remove();
+        }
+    }
+
+    function updateLabel(label, pdfPage) {
+        const printPage = pdfToPrint(pdfPage);
+        const offset = getOffset();
+
+        // Clear and rebuild label using safe DOM methods
+        label.textContent = '';
+
+        if (offset !== 0 && getZone(pdfPage) === 'content') {
+            const printSpan = document.createElement('span');
+            printSpan.className = 'print-page';
+            printSpan.textContent = 'p. ' + printPage;
+            const pdfSpan = document.createElement('span');
+            pdfSpan.className = 'pdf-page';
+            pdfSpan.textContent = ' (PDF ' + pdfPage + ')';
+            label.appendChild(printSpan);
+            label.appendChild(pdfSpan);
+        } else {
+            const pdfSpan = document.createElement('span');
+            pdfSpan.className = 'pdf-page';
+            pdfSpan.textContent = 'PDF page ' + pdfPage;
+            label.appendChild(pdfSpan);
+        }
+    }
+
+    function updateAllLabels() {
+        const cards = pageGrid.querySelectorAll('.page-card');
+        cards.forEach(function(card) {
+            const pdfPage = parseInt(card.dataset.pdfPage);
+            const label = card.querySelector('.page-label');
+            updateLabel(label, pdfPage);
+            updateCardState(card, pdfPage);
+        });
+    }
+
+    // ==================== LOAD PDF ====================
+    async function loadPDF(file) {
+        fileName = file.name.replace(/\.pdf$/i, '');
+        loading.classList.remove('hidden');
+        loadingText.textContent = 'Loading PDF...';
+
+        try {
+            const arrayBuffer = await file.arrayBuffer();
+            pdfBytes = new Uint8Array(arrayBuffer);
+            pdfDoc = await pdfjsLib.getDocument({ data: pdfBytes.slice() }).promise;
+            totalPages = pdfDoc.numPages;
+
+            // Update contentEnd placeholder
+            contentEnd.placeholder = String(totalPages);
+
+            // Clear state
+            selectedPages.clear();
+            lastClickedPage = null;
+            pageGrid.textContent = '';
+            emptyState.style.display = 'none';
+
+            // Enable buttons
+            btnSelectAll.disabled = false;
+            btnApplyRange.disabled = false;
+
+            // Render thumbnails in batches
+            const BATCH = 8;
+            for (var i = 1; i <= totalPages; i += BATCH) {
+                loadingText.textContent = 'Rendering pages ' + i + '-' + Math.min(i + BATCH - 1, totalPages) + ' of ' + totalPages + '...';
+                const promises = [];
+                for (var j = i; j < i + BATCH && j <= totalPages; j++) {
+                    promises.push(createPageCard(j));
+                }
+                await Promise.all(promises);
+            }
+
+            loading.classList.add('hidden');
+            updateStats();
+            showToast('Loaded ' + totalPages + ' pages');
+        } catch (err) {
+            loading.classList.add('hidden');
+            showToast('Failed to load PDF: ' + err.message, true);
+            console.error(err);
+        }
+    }
+
+    async function createPageCard(pdfPage) {
+        const card = document.createElement('div');
+        card.className = 'page-card';
+        card.dataset.pdfPage = pdfPage;
+
+        const canvas = document.createElement('canvas');
+        card.appendChild(canvas);
+
+        const label = document.createElement('div');
+        label.className = 'page-label';
+        card.appendChild(label);
+
+        updateLabel(label, pdfPage);
+        updateCardState(card, pdfPage);
+
+        card.addEventListener('click', function(e) { handlePageClick(pdfPage, e); });
+        pageGrid.appendChild(card);
+
+        await renderThumbnail(pdfPage, canvas);
+    }
+
+    // ==================== SELECTION ====================
+    function handlePageClick(pdfPage, event) {
+        if (event.shiftKey && lastClickedPage !== null) {
+            // Shift-click: select range
+            const from = Math.min(lastClickedPage, pdfPage);
+            const to = Math.max(lastClickedPage, pdfPage);
+            for (var p = from; p <= to; p++) {
+                selectedPages.add(p);
+            }
+        } else {
+            // Toggle single page
+            if (selectedPages.has(pdfPage)) {
+                selectedPages.delete(pdfPage);
+            } else {
+                selectedPages.add(pdfPage);
+            }
+        }
+        lastClickedPage = pdfPage;
+        updateAllCards();
+        updateStats();
+    }
+
+    function updateAllCards() {
+        const cards = pageGrid.querySelectorAll('.page-card');
+        cards.forEach(function(card) {
+            const pdfPage = parseInt(card.dataset.pdfPage);
+            updateCardState(card, pdfPage);
+        });
+    }
+
+    function selectContentPages() {
+        selectedPages.clear();
+        const start = getContentStartPage();
+        const end = getContentEndPage();
+        for (var p = start; p <= end; p++) {
+            selectedPages.add(p);
+        }
+        updateAllCards();
+        updateStats();
+        showToast('Selected ' + selectedPages.size + ' content pages');
+    }
+
+    function clearSelection() {
+        selectedPages.clear();
+        lastClickedPage = null;
+        updateAllCards();
+        updateStats();
+    }
+
+    function applyPrintRange() {
+        const startPrint = parseInt(rangeStart.value);
+        const endPrint = parseInt(rangeEnd.value);
+
+        if (!startPrint || !endPrint) {
+            showToast('Enter both start and end print pages', true);
+            return;
+        }
+        if (startPrint > endPrint) {
+            showToast('Start page must be before end page', true);
+            return;
+        }
+
+        const startPdf = printToPdf(startPrint);
+        const endPdf = printToPdf(endPrint);
+
+        if (startPdf < 1 || endPdf > totalPages) {
+            showToast('Print pages ' + startPrint + '-' + endPrint + ' map to PDF pages ' + startPdf + '-' + endPdf + ', but PDF has ' + totalPages + ' pages', true);
+            return;
+        }
+
+        selectedPages.clear();
+        for (var p = startPdf; p <= endPdf; p++) {
+            selectedPages.add(p);
+        }
+        lastClickedPage = endPdf;
+        updateAllCards();
+        updateStats();
+        showToast('Selected print pages ' + startPrint + '-' + endPrint + ' (PDF ' + startPdf + '-' + endPdf + ')');
+
+        // Scroll first selected page into view
+        const firstCard = pageGrid.querySelector('[data-pdf-page="' + startPdf + '"]');
+        if (firstCard) firstCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    // ==================== DOWNLOAD ====================
+    async function downloadSelected() {
+        if (selectedPages.size === 0) return;
+
+        loading.classList.remove('hidden');
+        loadingText.textContent = 'Creating PDF...';
+
+        try {
+            const PDFDocument = PDFLib.PDFDocument;
+            const srcDoc = await PDFDocument.load(pdfBytes);
+            const newDoc = await PDFDocument.create();
+
+            // Sort pages in order
+            const sortedPages = Array.from(selectedPages).sort(function(a, b) { return a - b; });
+
+            // Copy pages (pdf-lib uses 0-indexed)
+            const indices = sortedPages.map(function(p) { return p - 1; });
+            const copiedPages = await newDoc.copyPages(srcDoc, indices);
+            copiedPages.forEach(function(page) { newDoc.addPage(page); });
+
+            const outBytes = await newDoc.save();
+            const blob = new Blob([outBytes], { type: 'application/pdf' });
+            const url = URL.createObjectURL(blob);
+
+            // Generate filename with print page range if offset is set
+            const firstPdf = sortedPages[0];
+            const lastPdf = sortedPages[sortedPages.length - 1];
+            const offset = getOffset();
+            var suffix;
+            if (offset !== 0) {
+                suffix = 'pages_' + pdfToPrint(firstPdf) + '-' + pdfToPrint(lastPdf);
+            } else {
+                suffix = 'pages_' + firstPdf + '-' + lastPdf;
+            }
+
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = fileName + '_' + suffix + '.pdf';
+            link.click();
+            URL.revokeObjectURL(url);
+
+            loading.classList.add('hidden');
+            showToast('Downloaded ' + sortedPages.length + ' pages as ' + link.download);
+        } catch (err) {
+            loading.classList.add('hidden');
+            showToast('Failed to create PDF: ' + err.message, true);
+            console.error(err);
+        }
+    }
+
+    // ==================== EVENT LISTENERS ====================
+    fileInput.addEventListener('change', function(e) {
+        if (e.target.files[0]) loadPDF(e.target.files[0]);
+    });
+
+    pdfPageRef.addEventListener('input', updateOffsetDisplay);
+    printPageRef.addEventListener('input', updateOffsetDisplay);
+    contentStart.addEventListener('input', updateAllLabels);
+    contentEnd.addEventListener('input', updateAllLabels);
+
+    btnSelectAll.addEventListener('click', selectContentPages);
+    btnClearSelection.addEventListener('click', clearSelection);
+    btnDownload.addEventListener('click', downloadSelected);
+    btnApplyRange.addEventListener('click', applyPrintRange);
+
+    // Allow Enter key in range inputs to trigger apply
+    rangeStart.addEventListener('keydown', function(e) { if (e.key === 'Enter') applyPrintRange(); });
+    rangeEnd.addEventListener('keydown', function(e) { if (e.key === 'Enter') applyPrintRange(); });
+</script>
+
+</body>
+</html>

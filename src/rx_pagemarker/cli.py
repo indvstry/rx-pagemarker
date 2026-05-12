@@ -411,6 +411,121 @@ def extract(
 
 
 @cli.command()
+@click.argument("pdf_file", type=click.Path(exists=True, path_type=Path))
+@click.argument("output_pdf", type=click.Path(path_type=Path), required=False)
+@click.option(
+    "--start-page",
+    type=int,
+    required=True,
+    help="First page to extract (print page if --page-offset is set, otherwise PDF page)",
+)
+@click.option(
+    "--end-page",
+    type=int,
+    required=True,
+    help="Last page to extract (inclusive)",
+)
+@click.option(
+    "--page-offset",
+    type=int,
+    default=0,
+    help="Offset between print and PDF page numbers (print_page - offset = pdf_page). "
+    "E.g., if PDF page 5 = print page 81, offset is 76.",
+)
+def split(
+    pdf_file: Path,
+    output_pdf: Optional[Path],
+    start_page: int,
+    end_page: int,
+    page_offset: int,
+) -> None:
+    """Extract a page range from a PDF file.
+
+    Useful for extracting individual articles from magazine PDFs where
+    print page numbers differ from PDF page numbers.
+
+    When --page-offset is provided, --start-page and --end-page are
+    interpreted as PRINT page numbers and converted to PDF pages by
+    subtracting the offset.
+
+    \b
+    Examples:
+      # Extract PDF pages 5-19 directly
+      rx-pagemarker split magazine.pdf article.pdf --start-page 5 --end-page 19
+
+      # Extract print pages 81-95 (PDF page 5 = print page 81, offset = 76)
+      rx-pagemarker split magazine.pdf --start-page 81 --end-page 95 --page-offset 76
+
+      # Auto-generates: magazine_pages_81-95.pdf
+    """
+    try:
+        import fitz  # type: ignore[import]
+    except ImportError:
+        click.echo(
+            "Error: PyMuPDF is required for PDF splitting.\n"
+            "Install with: pip install 'rx-pagemarker[pdf]'",
+            err=True,
+        )
+        sys.exit(1)
+
+    # Convert print pages to PDF pages if offset is provided
+    pdf_start = start_page - page_offset
+    pdf_end = end_page - page_offset
+
+    # Validate
+    doc = fitz.open(pdf_file)
+    total_pages = len(doc)
+
+    if pdf_start < 1 or pdf_end < 1:
+        doc.close()
+        click.echo(
+            f"Error: Calculated PDF pages ({pdf_start}-{pdf_end}) are invalid. "
+            f"Check your --page-offset value ({page_offset}).",
+            err=True,
+        )
+        sys.exit(1)
+
+    if pdf_start > total_pages or pdf_end > total_pages:
+        doc.close()
+        click.echo(
+            f"Error: Calculated PDF pages ({pdf_start}-{pdf_end}) exceed "
+            f"document length ({total_pages} pages).",
+            err=True,
+        )
+        sys.exit(1)
+
+    if pdf_start > pdf_end:
+        doc.close()
+        click.echo(
+            f"Error: Start page ({pdf_start}) is after end page ({pdf_end}).",
+            err=True,
+        )
+        sys.exit(1)
+
+    # Generate output filename if not provided
+    if output_pdf is None:
+        stem = pdf_file.stem
+        suffix = pdf_file.suffix
+        output_pdf = pdf_file.parent / f"{stem}_pages_{start_page}-{end_page}{suffix}"
+
+    # Select pages (fitz uses 0-indexed)
+    page_indices = list(range(pdf_start - 1, pdf_end))
+    doc.select(page_indices)
+    doc.save(str(output_pdf))
+    doc.close()
+
+    page_count = pdf_end - pdf_start + 1
+    if page_offset:
+        click.echo(
+            f"Extracted print pages {start_page}-{end_page} "
+            f"(PDF pages {pdf_start}-{pdf_end}) → {page_count} pages"
+        )
+    else:
+        click.echo(f"Extracted pages {start_page}-{end_page} → {page_count} pages")
+    click.echo(f"Saved to: {output_pdf}")
+
+
+@cli.command()
 @click.argument("json_file", type=click.Path(exists=True, path_type=Path))
 @click.option(
     "--html",

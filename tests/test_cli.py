@@ -122,3 +122,21 @@ def test_mark_command_missing_file(runner, tmp_path):
     )
 
     assert result.exit_code != 0
+
+
+def test_split_command_help(runner):
+    """Test split command help."""
+    result = runner.invoke(cli, ["split", "--help"])
+    assert result.exit_code == 0
+    assert "PDF_FILE" in result.output
+    assert "--start-page" in result.output
+    assert "--end-page" in result.output
+    assert "--page-offset" in result.output
+
+
+def test_split_command_missing_file(runner):
+    """Test split command rejects missing PDF before invoking fitz."""
+    result = runner.invoke(
+        cli, ["split", "nonexistent.pdf", "--start-page", "1", "--end-page", "5"]
+    )
+    assert result.exit_code != 0
