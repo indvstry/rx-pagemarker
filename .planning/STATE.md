@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-stopped_at: Phase 1 reverted — editor restored to pre-GSD working version
-last_updated: "2026-04-01T20:34:01.722Z"
-last_activity: 2026-03-31
+status: needs_replanning
+stopped_at: Phase 1 reverted in b761c33 — editor restored to pre-GSD flat-scope version
+last_updated: "2026-05-12T00:00:00.000Z"
+last_activity: 2026-04-01
 progress:
   total_phases: 5
-  completed_phases: 1
+  completed_phases: 0
   total_plans: 3
-  completed_plans: 3
+  completed_plans: 0
   percent: 0
 ---
 
@@ -18,17 +18,17 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-30)
+See: .planning/PROJECT.md (updated 2026-05-12)
 
 **Core value:** Accurate page markers in EPUB files that match the print edition — enabling citation compatibility, page-list navigation, and accessibility for legal professionals
-**Current focus:** Phase 01 — structural-refactoring
+**Current focus:** Phase 01 — structural-refactoring (needs replanning after revert)
 
 ## Current Position
 
-Phase: 2
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-03-31
+Phase: 1
+Plan: Not started (previous 01-01/01-02/01-03 executed then reverted in b761c33)
+Status: Phase reverted — needs incremental replanning. The full-namespace refactor regressed editor behavior; see feedback_gsd_refactoring.md memory for the lesson.
+Last activity: 2026-04-01
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -52,9 +52,8 @@ Progress: [░░░░░░░░░░] 0%
 - Trend: —
 
 *Updated after each plan completion*
-| Phase 01-structural-refactoring P01 | 323s | 2 tasks | 1 files |
-| Phase 01-structural-refactoring P02 | 31538776 | 2 tasks | 1 files |
-| Phase 01-structural-refactoring P03 | 900 | 2 tasks | 1 files |
+
+**Note:** Phase 01 plans P01/P02/P03 were executed (commits 1770a04, 7e2c8b3, 711df00) but the full sequence was reverted in b761c33 after regressions surfaced. Historical execution durations are not meaningful for velocity tracking and have been removed.
 
 ## Accumulated Context
 
@@ -84,6 +83,7 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-01T20:34:01.718Z
-Stopped at: Phase 1 reverted — editor restored to pre-GSD working version
+Last session: 2026-04-01T20:34:01.718Z (revert commit b761c33)
+Stopped at: Phase 1 reverted — editor restored to pre-GSD flat-scope version
 Resume file: .planning/phases/01-structural-refactoring/01-CONTEXT.md
+Next step: Replan Phase 1 with incremental edits to the existing flat-scope editor — do NOT regenerate the file. See feedback_gsd_refactoring.md memory.

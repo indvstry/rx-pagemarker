@@ -9,10 +9,10 @@
 
 ### Architecture
 
-- [x] **ARCH-01**: Editor JS is organized into namespace modules with clear boundaries (no behavior change)
-- [x] **ARCH-02**: Central EventBus decouples modules — mutations emit events, consumers react
-- [x] **ARCH-03**: Single State object replaces scattered globals — modules read/write via State API
-- [x] **ARCH-04**: Marker element creation consolidated into single factory function
+- [ ] **ARCH-01**: Editor JS is organized into namespace modules with clear boundaries (no behavior change)
+- [ ] **ARCH-02**: Central EventBus decouples modules — mutations emit events, consumers react
+- [ ] **ARCH-03**: Single State object replaces scattered globals — modules read/write via State API
+- [ ] **ARCH-04**: Marker element creation consolidated into single factory function
 
 ### Precision Interaction
 
@@ -28,10 +28,10 @@
 
 ### Content Integrity
 
-- [x] **INTG-01**: Moving a marker preserves all surrounding HTML elements, attributes, and classes — no content loss or stripping
-- [x] **INTG-02**: Moving a marker leaves no orphaned tags, empty spans, or junk whitespace at the source location
-- [x] **INTG-03**: Exported HTML preserves all original document classes, attributes, and structure outside of marker elements
-- [x] **INTG-04**: Undo/redo restores exact document state including all HTML classes and attributes
+- [ ] **INTG-01**: Moving a marker preserves all surrounding HTML elements, attributes, and classes — no content loss or stripping
+- [ ] **INTG-02**: Moving a marker leaves no orphaned tags, empty spans, or junk whitespace at the source location
+- [ ] **INTG-03**: Exported HTML preserves all original document classes, attributes, and structure outside of marker elements
+- [ ] **INTG-04**: Undo/redo restores exact document state including all HTML classes and attributes
 
 ### Validation
 
@@ -71,14 +71,14 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ARCH-01 | Phase 1 | Complete |
-| ARCH-02 | Phase 1 | Complete |
-| ARCH-03 | Phase 1 | Complete |
-| ARCH-04 | Phase 1 | Complete |
-| INTG-01 | Phase 1 | Complete |
-| INTG-02 | Phase 1 | Complete |
-| INTG-03 | Phase 1 | Complete |
-| INTG-04 | Phase 1 | Complete |
+| ARCH-01 | Phase 1 | Pending (reverted in b761c33) |
+| ARCH-02 | Phase 1 | Pending (reverted in b761c33) |
+| ARCH-03 | Phase 1 | Pending (reverted in b761c33) |
+| ARCH-04 | Phase 1 | Pending (reverted in b761c33) |
+| INTG-01 | Phase 1 | Pending (reverted in b761c33) |
+| INTG-02 | Phase 1 | Pending (reverted in b761c33) |
+| INTG-03 | Phase 1 | Pending (reverted in b761c33) |
+| INTG-04 | Phase 1 | Pending (reverted in b761c33) |
 | NAV-01 | Phase 2 | Pending |
 | NAV-02 | Phase 2 | Pending |
 | VAL-01 | Phase 3 | Pending |
@@ -97,4 +97,4 @@
 
 ---
 *Requirements defined: 2026-03-30*
-*Last updated: 2026-03-30 after roadmap creation — all 18 requirements mapped*
+*Last updated: 2026-05-12 — Phase 1 ARCH/INTG requirements reverted to Pending after commit b761c33 rolled back the structural refactoring (see feedback_gsd_refactoring.md memory). Plans 01-01/01-02/01-03 were executed but the implementation regressed and was reverted.*

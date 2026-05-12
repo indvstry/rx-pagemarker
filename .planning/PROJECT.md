@@ -30,13 +30,13 @@ Accurate page markers in EPUB files that match the print edition — enabling ci
 - ✓ PDF splitting CLI command and browser tool — Phase 12
 - ✓ Professional Python packaging with Click CLI — Phase 3
 - ✓ Comprehensive test suite (79 tests) — Phase 3
-- ✓ Editor JS namespace modules with EventBus and State — Phase 1 (visual editor milestone)
-- ✓ Content integrity: marker moves preserve all HTML classes/attributes — Phase 1 (visual editor milestone)
-- ✓ Export diff check validates non-marker structure — Phase 1 (visual editor milestone)
-- ✓ Marker factory consolidated from 4 duplicated sites — Phase 1 (visual editor milestone)
 
 ### Active
 
+- [ ] Editor JS namespace modules with EventBus and State — Phase 1 (reverted in b761c33, needs replanning)
+- [ ] Content integrity: marker moves preserve all HTML classes/attributes — Phase 1 (reverted in b761c33)
+- [ ] Export diff check validates non-marker structure — Phase 1 (reverted in b761c33)
+- [ ] Marker factory consolidated from 4 duplicated sites — Phase 1 (reverted in b761c33)
 - [ ] Improved drag-and-drop precision with snap-to-word-gap behavior
 - [ ] Click-to-move alternative to drag-and-drop for marker repositioning
 - [ ] Marker list sidebar with click-to-jump navigation
@@ -101,4 +101,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-31 after Phase 1 completion*
+*Last updated: 2026-05-12 — reconciled with revert in commit b761c33. Phase 1 structural-refactoring requirements moved back to Active because the GSD-driven refactor regressed the editor and was reverted (see feedback_gsd_refactoring.md memory for the lesson). Phase 1 must be replanned with incremental edits, not a full rewrite.*

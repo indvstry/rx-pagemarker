@@ -32,9 +32,11 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 3 plans
 
 Plans:
-- [x] 01-01-PLAN.md — Add EventBus, State, Markers namespaces; migrate 8 flat-scope globals; replace 3 inline marker createElement sites with Markers.createMarker factory
-- [x] 01-02-PLAN.md — Create History, AutoSave, DragDrop namespaces; wire EventBus mutations; harden moveMarker normalize() invariant
-- [x] 01-03-PLAN.md — Create AddMode, Export (with diff check), Toast, UI, FileLoader namespaces; wire Init; complete all EventBus wiring
+- [ ] 01-01-PLAN.md — Add EventBus, State, Markers namespaces; migrate 8 flat-scope globals; replace 3 inline marker createElement sites with Markers.createMarker factory *(executed then reverted in b761c33)*
+- [ ] 01-02-PLAN.md — Create History, AutoSave, DragDrop namespaces; wire EventBus mutations; harden moveMarker normalize() invariant *(executed then reverted in b761c33)*
+- [ ] 01-03-PLAN.md — Create AddMode, Export (with diff check), Toast, UI, FileLoader namespaces; wire Init; complete all EventBus wiring *(executed then reverted in b761c33)*
+
+**Status note:** All three plans were executed but the resulting refactor caused regressions and was reverted (b761c33). The editor is back to its pre-refactor flat-scope state. Phase 1 must be re-approached with incremental edits — see feedback_gsd_refactoring.md memory.
 
 ### Phase 2: Sidebar Navigation
 **Goal**: Users can navigate a 200+ marker document via a clickable sidebar list and jump directly to any marker
@@ -85,8 +87,8 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Structural Refactoring | 2/3 | In Progress|  |
-| 2. Sidebar Navigation | 0/TBD | Not started | - |
-| 3. Sequence Validation | 0/TBD | Not started | - |
-| 4. Click-to-Move | 0/TBD | Not started | - |
-| 5. Drag Precision | 0/TBD | Not started | - |
+| 1. Structural Refactoring | 0/3 | Reverted — needs replanning | - |
+| 2. Sidebar Navigation | 0/TBD | Blocked on Phase 1 | - |
+| 3. Sequence Validation | 0/TBD | Blocked on Phase 1 | - |
+| 4. Click-to-Move | 0/TBD | Blocked on Phase 1 | - |
+| 5. Drag Precision | 0/TBD | Blocked on Phase 1 | - |
