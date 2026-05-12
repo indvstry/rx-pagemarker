@@ -9,14 +9,19 @@ A Python tool to insert page number markers into HTML files for EPUB3 generation
 - **🎯 Smart extraction strategies**: Choose between end-of-page text or visual positioning
 - **🔧 Word boundary reconstruction**: Handles PDFs with missing spaces using dictionary-based segmentation
 - **🎯 HTML-based correction**: Match PDF snippets against clean HTML for perfect word boundaries
+- **🔁 Sequential position tracking**: Handles duplicate snippets and multiple page breaks per paragraph by tracking insertion progress in document order
+- **🧭 Context matching**: Disambiguates duplicate snippets using surrounding-words similarity (Jaccard scoring) — see `--context-words`
+- **📐 Page offset hack**: `--page-offset` with +1 adjustment produces EPUB-correct page-list semantics from `end_of_page` extraction
 - **📊 Confidence scoring**: Review mode shows quality scores for automatically extracted snippets
 - **✅ Built-in validation**: Check for duplicates and verify snippets exist in HTML
 - **✨ Intelligent snippet matching**: Finds text even when split across formatting tags (`<i>`, `<b>`, `<span>`)
 - **DOM-aware insertion**: Uses BeautifulSoup to parse HTML structure, preventing markers from being inserted into attributes or tags
-- **InDesign-friendly**: Handles complex HTML exports with heavy inline formatting
+- **InDesign-friendly**: Handles complex HTML exports with heavy inline formatting; auto-filters sluglines/timestamps and dehyphenates words split across lines
 - **Accessibility support**: Generates page markers with proper ARIA attributes
 - **Detailed reporting**: Shows statistics on successful insertions, missing snippets, and multiple matches
 - **Fallback-ready**: Manual mapping file ensures accuracy when automation isn't feasible
+- **🖱️ Visual marker editor**: Browser-based drag-and-drop tool (`tools/page-marker-editor.html`) for correcting misplaced markers with auto-save, undo/redo, and add/edit/delete — no server, no install
+- **✂️ PDF splitting**: `rx-pagemarker split` CLI and `tools/pdf-splitter.html` browser tool for extracting page ranges from magazine PDFs (independent from the marking pipeline)
 
 ## Installation
 
@@ -167,6 +172,58 @@ The validator checks for:
 
 ```bash
 rx-pagemarker mark book.html snippets.json book_with_pages.html
+
+# Inject CSS so markers are visible in a browser (useful for previewing)
+rx-pagemarker mark book.html snippets.json book_with_pages.html --inject-css
+```
+
+The marker inserter walks the document in page order and tracks the last insertion position so subsequent markers must come *after* it. This handles duplicate snippet text correctly and supports multiple page breaks within a single paragraph.
+
+---
+
+### Magazine Workflow (Body-Only Content + Offset Hack)
+
+Magazines typically have:
+- Frontmatter (TOC, masthead) and backmatter (indexes) that are **not** in the HTML export
+- Page numbers that continue across issues (e.g., issue 4 starts at print page 775)
+
+Use `--start-page` / `--end-page` to skip frontmatter/backmatter, and `--page-offset` with the **+1 offset hack** for EPUB-correct semantics:
+
+```bash
+# Magazine: PDF page 7 = print page 775, body runs PDF pages 7-237
+#
+# Offset formula: first_print_page - first_pdf_page + 1 = 775 - 7 + 1 = 769
+#
+# The +1 matters: end_of_page extraction places a marker at the END of page N,
+# but EPUB readers expect "Page N+1" to land at the BEGINNING of N+1. The +1
+# offset relabels the marker so the EPUB jumps to the right spot.
+
+rx-pagemarker extract magazine.pdf snippets.json magazine.html \
+  --start-page 7 --end-page 237 --page-offset 769
+```
+
+Tested on a 272-page Greek legal magazine: **97.8% marker insertion rate** with this workflow.
+
+For **two-column PDFs** (where two articles share a page), expect lower automated success (~50–60%) — use the visual editor (below) for the remainder. Do **not** use a `--two-column` flag if you find one in old docs; it has column-sorting bugs.
+
+### Context Matching (Duplicate Disambiguation)
+
+When the same snippet text appears on multiple pages (e.g., a common phrase like "του δικαστηρίου"), sequential tracking alone may pick the wrong occurrence. The extractor captures N words before/after each snippet and the marker inserter scores candidate locations with Jaccard word similarity:
+
+```bash
+# Default: 4 words of context on each side; set 0 to disable
+rx-pagemarker extract magazine.pdf snippets.json magazine.html --context-words 4
+```
+
+Context appears in the JSON as `context_before` / `context_after` fields:
+
+```json
+{
+  "page": 900,
+  "snippet": "του δικαστηρίου",
+  "context_before": "η απόφαση",
+  "context_after": "είναι τελεσίδικη"
+}
 ```
 
 ---
@@ -271,13 +328,66 @@ The JSON file should contain an array of objects with `page` and `snippet` field
 Page markers are inserted as:
 
 ```html
-<span class="page-number" role="note" aria-label="Page 5">5</span>
+<span id="page5" class="page-number" role="note" aria-label="Page 5">5</span>
+```
+
+| Attribute | Purpose |
+|-----------|---------|
+| `id="page5"` | Unique target for EPUB page-list links (`<a href="chapter.xhtml#page5">`) |
+| `class="page-number"` | CSS styling hook |
+| `role="note"` | ARIA landmark — screen readers announce as supplementary info |
+| `aria-label="Page 5"` | Full description for accessibility |
+
+When the same page number appears more than once (e.g., two-column layouts where two articles share a page), subsequent IDs are suffixed:
+
+```html
+<span id="page36" ...>36</span>      <!-- First occurrence -->
+<span id="page36-2" ...>36</span>    <!-- Second occurrence -->
 ```
 
 These markers:
 - Can be styled with CSS via the `.page-number` class
 - Are accessible to screen readers via ARIA attributes
 - Can be used to generate EPUB3 page-list navigation
+
+## Visual Marker Editor
+
+`tools/page-marker-editor.html` is a browser-based drag-and-drop tool for correcting marker positions in marked HTML files. It is a **single HTML file** with no server, no build step, no dependencies — just open it in any modern browser.
+
+Use it when automated extraction misplaces a marker, or when you need to add markers for two-column pages where one column extraction failed.
+
+**Features:**
+- Load any marked HTML file via file picker
+- Page markers appear as red draggable badges
+- Drag markers between words to reposition them
+- Click **+ Add Marker** then click any word to insert a marker after it (word-boundary only; suggests the next sequential page number)
+- Double-click a marker to edit its page number or delete it (leave empty + confirm to delete)
+- Undo/redo (Ctrl+Z / Ctrl+Y), zoom controls, drop-position indicator
+- Download as `corrected_YYYY-MM-DD_HH-MM.html`, or **Copy Body Content** (inner-body HTML only) for pasting back into per-article files
+- **Auto-save to localStorage** after every change with a restore prompt next time you open the editor — work survives refresh or accidental close (7-day retention)
+- Export skips corrupted markers without page numbers and notifies you
+
+**Known limitation:** The download uses XMLSerializer which reformats the file (adds `<!DOCTYPE html>`, collapses whitespace, may reorder attributes). Content and structure are identical — safe for EPUB generation, but not byte-for-byte identical to the input.
+
+## PDF Splitting
+
+`rx-pagemarker split` extracts a page range from a PDF — useful for processing individual articles from magazine PDFs. The same range logic is also available as a visual tool at `tools/pdf-splitter.html`.
+
+**This is independent from the marking pipeline** — split exists purely as a convenience for slicing source PDFs before extraction.
+
+```bash
+# Extract PDF pages 5-19 directly
+rx-pagemarker split magazine.pdf article.pdf --start-page 5 --end-page 19
+
+# Extract print pages 81-95 when PDF page 5 = print page 81
+# Note: --page-offset is SUBTRACTED here (reverse of extract's offset direction).
+# So you think in print pages; the tool converts to PDF pages.
+rx-pagemarker split magazine.pdf --start-page 81 --end-page 95 --page-offset 76
+
+# Output filename auto-generated: magazine_pages_81-95.pdf
+```
+
+The browser tool (`tools/pdf-splitter.html`) shows thumbnails, supports shift-click range selection, lets you visually mark frontmatter/backmatter zones, and does client-side PDF extraction (PDF.js + pdf-lib via CDN — no server).
 
 ## Workflow Decision Tree
 
@@ -364,9 +474,10 @@ Review Mode Output:
 
 ## Future Enhancements
 
-- **Optimize HTML matching algorithm**: Reduce time from minutes to seconds for large documents
+- **Optimize HTML fuzzy matching algorithm**: Only affects the `--fuzzy-match` flag (rarely needed); reduce time from minutes to seconds for large documents
 - **Multi-language support**: Add frequency-based dictionaries for other languages (English, French, etc.)
-- **Context matching**: Use surrounding text to disambiguate duplicate snippets
+- **Visual editor: marker list sidebar**: Click-to-jump navigation for documents with 200+ markers
+- **Visual editor: out-of-order detection**: Highlight markers that violate sequential page order
 - **Interactive mode**: Preview matches before insertion
 - **Batch processing**: Process multiple HTML files at once
 - **Smart snippet refinement**: Auto-adjust snippets that appear multiple times in the document
@@ -377,6 +488,9 @@ Review Mode Output:
 
 - **`tests/`** - Automated test suite (pytest) for code verification
 - **`examples/`** - Sample files for users to learn and test the tool
+- **`tools/`** - Browser-based standalone HTML utilities
+  - **`page-marker-editor.html`** - Visual drag-and-drop marker editor
+  - **`pdf-splitter.html`** - Visual PDF page-range extractor
 - **`src/rx_pagemarker/`** - Main package source code
   - **`data/`** - Dictionary files (Greek word frequency list)
 

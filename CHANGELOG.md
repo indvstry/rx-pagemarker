@@ -1,5 +1,128 @@
 # Changelog
 
+## PDF Splitting - 2025-03-23 (Phase 12)
+
+### Added
+- **`rx-pagemarker split` CLI command**: Extract a page range from a PDF file. Thin wrapper over PyMuPDF's `doc.select()`. Supports `--page-offset` for print-page → PDF-page conversion (subtracted: `print_page - offset = pdf_page`). Auto-generates output filename when `OUTPUT_PDF` is omitted.
+- **`tools/pdf-splitter.html`**: Single-file browser tool for visual page-range extraction. Uses PDF.js for thumbnails and pdf-lib for client-side PDF creation (both via CDN). Supports offset mapping, frontmatter/backmatter zone marking, and shift-click range selection.
+
+### Design Note
+PDF splitting is **deliberately independent** from the marking pipeline. It exists as a convenience for slicing source PDFs before extraction — no shared state with `extract` or `mark`. The `--page-offset` semantics are also intentionally reversed from `extract`: split subtracts the offset (user thinks in print pages, tool converts to PDF pages), while extract adds it.
+
+---
+
+## Visual Marker Editor - 2025-01-17 (Phase 11)
+
+### Added
+- **`tools/page-marker-editor.html`**: Browser-based drag-and-drop tool for correcting misplaced page markers. Single HTML file, no server, no dependencies, works offline.
+  - Drag markers between words to reposition
+  - **+ Add Marker** mode: click any word to insert a marker after it (word-boundary only; suggests next sequential page number)
+  - Double-click to edit/delete markers
+  - Undo/redo (Ctrl+Z / Ctrl+Y), zoom controls, drop-position indicator
+  - Download as `corrected_YYYY-MM-DD_HH-MM.html` or **Copy Body Content** to clipboard for per-article re-editing
+  - **Auto-save to localStorage** after every change with restore prompt on reopen (7-day retention; notifies after 3 consecutive save failures)
+  - Export skips corrupted markers without page numbers
+
+### Known Limitation
+Download uses XMLSerializer which reformats output (adds `<!DOCTYPE html>`, collapses whitespace, may reorder attributes). Content and structure are identical — safe for EPUB generation but not byte-for-byte identical to input.
+
+---
+
+## Context Matching - 2025-01-17 (Phase 10)
+
+### Added
+- **`--context-words N` flag**: Captures N words before/after each snippet during extraction (default: 4, set 0 to disable). Stored in JSON as `context_before` / `context_after` fields.
+- **Jaccard-similarity scoring during marking**: When a snippet appears at multiple HTML locations, the inserter scores each candidate using normalized word overlap with the captured context (40% before-context, 60% after-context — after is more reliable for `end_of_page` strategy). Falls back to first sequential match if best score < 0.3.
+
+### Why
+Sequential position tracking (Phase 8) rejects snippets that appear earlier in the document, but can't *choose* between multiple valid later positions. Context matching disambiguates duplicates like "του δικαστηρίου" that appear verbatim on pages 200, 500, and 900.
+
+### JSON Format Change
+```json
+{
+  "page": 900,
+  "snippet": "του δικαστηρίου",
+  "context_before": "η απόφαση",
+  "context_after": "είναι τελεσίδικη"
+}
+```
+
+---
+
+## Page Offset Hack for EPUB Navigation - 2025-01-15 (Phase 9)
+
+### Behavior Change
+- **Removed `--position-after` flag**: Markers are now always placed *after* the snippet text. Use `--page-offset` with the +1 adjustment instead.
+- **The Offset Hack**: `end_of_page` extraction places a marker at the END of page N. EPUB readers expect "Page N+1" to land at the BEGINNING of page N+1 (i.e., right after the page N break). Adding +1 to the user-supplied `--page-offset` relabels the marker so EPUB navigation works correctly.
+  - Formula: `offset = first_print_page - first_pdf_page + 1`
+  - Example: PDF page 7 = print page 775 → use `--page-offset 769` (not 768)
+
+### Why Not `beginning_of_page` Strategy
+Tried it — only 72.7% success rate vs 97.8% for `end_of_page`. Page beginnings repeat headers/section titles too often; sequential tracking rejects too many duplicates.
+
+---
+
+## Sequential Position Tracking - 2025-01-14 (Phase 8)
+
+### Fixed
+- **Out-of-order marker placement**: When snippet text appeared multiple times in the document, the first occurrence won — even if it was many pages before the correct location. The marker for page 900 could land at the page 200 occurrence.
+
+### How
+- Process pages in ascending order
+- Track both container index AND character position within container
+- Each new marker must come *after* the previous marker's position
+- Supports multiple page breaks within the same paragraph
+
+### Added
+- **`--start-page` / `--end-page`**: Restrict extraction to body content only. Critical for magazines where PDF frontmatter (TOC, masthead) isn't in the HTML export.
+
+### Results
+On XRDD 4/2025 magazine: 47 markers (18%, with 204 out-of-order removed) → **228/232 markers (98.3%)** after filtering + position tracking.
+
+---
+
+## CLI Simplification - 2025-01-13 (Phase 7)
+
+### Behavior Change
+- **HTML file is now a required positional argument** for `extract` (enables word completion by default).
+- **New syntax**: `rx-pagemarker extract book.pdf snippets.json book.html`
+- **`--raw-pdf` flag**: Opt out of HTML correction for faster but less accurate extraction.
+- **`--fuzzy-match` flag**: Replaces older `--match-html` for slow fuzzy matching on corrupted PDFs.
+- Better error messages when HTML is missing.
+
+---
+
+## Magazine Support & Smart Correction - 2025-01-XX (Phase 6)
+
+### Added
+- **`--page-offset N`**: For magazines with continuing page numbers across issues.
+- **Footnote filtering by default**: Use `--include-footnotes` to include footnote text; `--min-font-size` to adjust the threshold (default: 8.5pt).
+- **Partial word completion**: Cut-off words at snippet boundaries (e.g., "σύγ") are completed using the HTML reference (→ "σύγχυση"), with the marker placed after the *complete* word.
+- **Context-based correction**: Merged words inside snippets are fixed by finding anchor sequences of 2-3 correctly-extracted words in the HTML and substituting the correct surrounding text.
+- **`--inject-css` flag** on `mark`: Inject visible CSS for previewing page markers in a browser.
+
+### Results
+Match rate on test magazine improved from **71.8% → 98.9%** with context-based correction enabled.
+
+---
+
+## Production PDF Support - 2025-01-XX (Phase 5)
+
+### Added
+- **InDesign metadata filtering**: Auto-excludes sluglines (e.g., `file.indd 123`) and timestamps from extraction.
+- **Dehyphenation**: Rejoins words split across lines (e.g., `αντισυμ-\nβαλλομένων` → `αντισυμβαλλομένων`) before HTML matching.
+- **Text normalization**: Handles spacing around punctuation and slashes.
+- **Validation improvement**: Strips HTML tags before snippet comparison; normalizes whitespace.
+
+### CLI Options
+- **`--exclude-pattern`**: Add custom regex patterns to exclude from extraction.
+- **`--no-default-excludes`**: Disable the default InDesign filter list if needed.
+
+### Results
+Tested on 272-page two-column legal magazine: **78.6% content match rate** (before later phases pushed this above 97%).
+
+---
+
 ## Dictionary Expansion - 2025-11-24
 
 ### 🎉 Major Enhancement
