@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Help — Page Marker Editor</title>
+    <style>
+        * { box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        /* ==================== HEADER ==================== */
+        .header {
+            background: linear-gradient(135deg, #2c3e50, #3498db);
+            color: white;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        }
+
+        .header h1 {
+            margin: 0 0 5px 0;
+            font-size: 24px;
+        }
+
+        .header p {
+            margin: 0;
+            opacity: 0.9;
+            font-size: 14px;
+        }
+
+        /* ==================== CONTENT ==================== */
+        main {
+            max-width: 760px;
+            margin: 0 auto;
+            padding: 30px 25px 60px;
+        }
+
+        .back-link {
+            display: inline-block;
+            color: #3498db;
+            text-decoration: none;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+
+        .back-link:hover {
+            text-decoration: underline;
+        }
+
+        h2 {
+            color: #2c3e50;
+            font-size: 20px;
+            margin-top: 35px;
+            margin-bottom: 12px;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 6px;
+        }
+
+        h2:first-of-type {
+            margin-top: 10px;
+        }
+
+        h3 {
+            color: #2c3e50;
+            font-size: 16px;
+            margin-top: 22px;
+            margin-bottom: 8px;
+        }
+
+        p, li {
+            font-size: 14px;
+        }
+
+        ol, ul {
+            padding-left: 22px;
+        }
+
+        li {
+            margin-bottom: 8px;
+        }
+
+        kbd {
+            background: #eee;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 12px;
+            border: 1px solid #ccc;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', monospace;
+        }
+
+        code {
+            background: #f4f4f4;
+            padding: 1px 5px;
+            border-radius: 3px;
+            font-size: 13px;
+            color: #c0392b;
+        }
+
+        /* ==================== TIP / WARN BOXES ==================== */
+        .tip, .warn {
+            padding: 12px 14px;
+            margin: 14px 0;
+            font-size: 14px;
+            border-radius: 3px;
+        }
+
+        .tip {
+            background: #e8f6fd;
+            border-left: 3px solid #3498db;
+        }
+
+        .warn {
+            background: #fdf2e8;
+            border-left: 3px solid #e67e22;
+        }
+
+        /* ==================== TABLES ==================== */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 12px 0;
+            font-size: 14px;
+            background: white;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        th, td {
+            padding: 9px 12px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+
+        th {
+            background: #fafafa;
+            color: #2c3e50;
+            font-weight: 600;
+            font-size: 13px;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        td:first-child {
+            white-space: nowrap;
+            font-weight: 500;
+        }
+
+        /* ==================== FOOTER ==================== */
+        footer {
+            text-align: center;
+            font-size: 12px;
+            color: #999;
+            padding: 30px 20px 50px;
+        }
+
+        footer a {
+            color: #3498db;
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Page Marker Editor — Help</h1>
+        <p>Reference for the visual page marker editor</p>
+    </div>
+
+    <main>
+        <a href="page-marker-editor.html" class="back-link">← Back to editor</a>
+
+        <h2>Quick Start</h2>
+        <ol>
+            <li><strong>Load</strong> a marked HTML file using the <em>Load HTML File</em> button.</li>
+            <li><strong>Drag</strong> any red page marker badge to move it. A blue line shows where it will land — drop between words.</li>
+            <li><strong>Download</strong> the corrected file. It saves as <code>corrected_YYYY-MM-DD_HH-MM.html</code>.</li>
+        </ol>
+
+        <div class="tip">
+            <strong>Tip:</strong> Your work auto-saves to the browser after every change. If you refresh or close the tab, you'll be asked whether to restore it.
+        </div>
+
+        <h2>All Actions</h2>
+        <table>
+            <thead>
+                <tr><th>Action</th><th>How</th></tr>
+            </thead>
+            <tbody>
+                <tr><td>Load file</td><td>Click <em>Load HTML File</em> and pick a marked <code>.html</code></td></tr>
+                <tr><td>Move marker</td><td>Drag the red badge and drop it between two words</td></tr>
+                <tr><td>Add marker</td><td>Click <em>+ Add Marker</em>, then click a word — the marker is inserted after it. <kbd>Esc</kbd> exits add mode.</td></tr>
+                <tr><td>Edit number</td><td>Double-click a marker, type a new number, confirm</td></tr>
+                <tr><td>Delete marker</td><td>Double-click a marker, leave the field empty, confirm</td></tr>
+                <tr><td>Undo / Redo</td><td><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Y</kbd>, or the toolbar buttons</td></tr>
+                <tr><td>Zoom</td><td>Use the <em>+ / −</em> toolbar buttons for finer positioning</td></tr>
+                <tr><td>Download</td><td>Saves the full corrected HTML, timestamped filename</td></tr>
+                <tr><td>Copy Body</td><td>Copies only the inner <code>&lt;body&gt;</code> HTML to clipboard — useful for pasting a single article back into a larger document</td></tr>
+            </tbody>
+        </table>
+
+        <h2>Keyboard Shortcuts</h2>
+        <ul>
+            <li><kbd>Ctrl</kbd>+<kbd>Z</kbd> — Undo</li>
+            <li><kbd>Ctrl</kbd>+<kbd>Y</kbd> — Redo</li>
+            <li><kbd>Esc</kbd> — Exit <em>Add Marker</em> mode</li>
+        </ul>
+
+        <h2>Auto-save &amp; Recovery</h2>
+        <p>The editor automatically saves your work to the browser's local storage after every change. When you reopen the editor:</p>
+        <ul>
+            <li>If recent work is found, you'll be prompted: <em>"Found unsaved work from X minutes ago. Restore it?"</em></li>
+            <li>Click <strong>OK</strong> to continue where you left off (no need to reload the file).</li>
+            <li>Click <strong>Cancel</strong> to start fresh.</li>
+        </ul>
+
+        <h3>What can cause data loss</h3>
+        <ul>
+            <li>Clearing browser data or cache</li>
+            <li>Saved data older than 7 days (auto-cleared)</li>
+            <li>Incognito / private browsing mode</li>
+            <li>Choosing <em>Cancel</em> on the restore prompt</li>
+        </ul>
+
+        <div class="warn">
+            <strong>If auto-save fails 3 times in a row</strong> (storage full or disabled), the editor warns you and prompts a manual download. Don't ignore that toast.
+        </div>
+
+        <h2>Best Practices</h2>
+        <ul>
+            <li><strong>Markers in titles or headings:</strong> if a marker lands at the start of a heading, move it to the start of the first body paragraph instead. This produces cleaner EPUB rendering and avoids disrupting heading styles.</li>
+            <li><strong>Two-column magazines:</strong> when both columns on a page start a different article, you'll see two markers with the same page number (e.g. two <em>36</em>s). That's correct — they get distinct internal IDs (<code>page36</code>, <code>page36-2</code>).</li>
+            <li><strong>Re-editing a single article:</strong> use <em>Copy Body Content</em>, paste the article into a fresh file, edit its markers, then copy back into the larger document.</li>
+        </ul>
+
+        <h2>Troubleshooting</h2>
+
+        <h3>"Copy Body Content" does nothing or shows an error</h3>
+        <p>The browser's Clipboard API is restricted when the page is opened from a <code>file://</code> path. The editor will tell you to use <em>Download</em> instead. To restore clipboard support, host the editor at <code>http(s)://</code> or use a browser that allows clipboard access for local files.</p>
+
+        <h3>The downloaded HTML looks different from my original</h3>
+        <p>The editor uses the browser's <code>XMLSerializer</code> to write the file, which:</p>
+        <ul>
+            <li>Adds a <code>&lt;!DOCTYPE html&gt;</code> declaration if missing</li>
+            <li>Collapses whitespace and indentation</li>
+            <li>May reorder attributes (e.g. <code>class</code> before <code>id</code>)</li>
+        </ul>
+        <p>The <em>content and structure</em> are identical — only formatting changes. This is safe for EPUB generation. It's <strong>not</strong> suitable if you need byte-for-byte preservation.</p>
+
+        <h3>My work disappeared after reopening</h3>
+        <ul>
+            <li>You may have clicked <em>Cancel</em> on the restore prompt. Auto-save data is then cleared.</li>
+            <li>You're in incognito / private mode — no persistent storage between sessions.</li>
+            <li>It's been more than 7 days since you last opened it.</li>
+        </ul>
+
+        <h3>Markers won't drag</h3>
+        <p>Make sure you click directly on the red badge (not on a word next to it). The cursor turns into a grab hand when the marker is hoverable.</p>
+
+        <h3>I added a marker but the page number is wrong</h3>
+        <p>Double-click the marker, type the correct number, and confirm. The editor doesn't auto-renumber existing markers — sequential numbering is suggested only when adding new ones.</p>
+
+        <h2>Known Limitations</h2>
+        <ul>
+            <li><strong>Single-file constraint:</strong> the editor is one HTML file with no build step, no frameworks, no server. This is intentional for portability — the trade-off is that styling can't be shared across tools without duplication.</li>
+            <li><strong>Output formatting:</strong> as noted above, downloads are reformatted by <code>XMLSerializer</code>. Content is preserved exactly; whitespace is not.</li>
+            <li><strong>localStorage scope:</strong> auto-saved data is scoped to the file's URL in the browser. If you move the HTML file to a different folder, the saved work won't follow.</li>
+        </ul>
+
+        <h2>Where Markers Come From</h2>
+        <p>This editor is the manual-correction step of a larger pipeline:</p>
+        <ol>
+            <li><strong>Extract</strong> — <code>rx-pagemarker extract</code> reads a PDF and produces a JSON list of page-ending snippets.</li>
+            <li><strong>Mark</strong> — <code>rx-pagemarker mark</code> inserts marker <code>&lt;span&gt;</code> elements into the HTML at those snippet locations.</li>
+            <li><strong>Correct</strong> (this editor) — drag-and-drop any markers that landed in the wrong place.</li>
+            <li><strong>Generate</strong> — feed the corrected HTML to the EPUB generator for page-list navigation.</li>
+        </ol>
+        <p>Each marker is a <code>&lt;span&gt;</code> with <code>id="pageN"</code>, <code>class="page-number"</code>, <code>role="note"</code>, and <code>aria-label="Page N"</code> — these enable EPUB page-list navigation, citation parity with the print edition, and screen-reader accessibility.</p>
+    </main>
+
+    <footer>
+        Part of <a href="https://github.com/" onclick="return false;">RX Page Marker</a> · <a href="page-marker-editor.html">Open the editor</a>
+    </footer>
+</body>
+</html>
