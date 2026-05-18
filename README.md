@@ -369,6 +369,8 @@ Use it when automated extraction misplaces a marker, or when you need to add mar
 
 **Known limitation:** The download uses XMLSerializer which reformats the file (adds `<!DOCTYPE html>`, collapses whitespace, may reorder attributes). Content and structure are identical — safe for EPUB generation, but not byte-for-byte identical to the input.
 
+**Help page:** `tools/help.html` is a standalone single-file reference covering quick start, all actions, keyboard shortcuts, auto-save behavior, troubleshooting (Clipboard API on `file://`, XMLSerializer reformatting, data-loss causes), and known limitations. The editor's sidebar links to it. Zero dependencies, works offline.
+
 ## PDF Splitting
 
 `rx-pagemarker split` extracts a page range from a PDF — useful for processing individual articles from magazine PDFs. The same range logic is also available as a visual tool at `tools/pdf-splitter.html`.
@@ -491,6 +493,7 @@ Review Mode Output:
 - **`tools/`** - Browser-based standalone HTML utilities
   - **`page-marker-editor.html`** - Visual drag-and-drop marker editor
   - **`pdf-splitter.html`** - Visual PDF page-range extractor
+  - **`help.html`** - User-facing reference for the editor (linked from sidebar)
 - **`src/rx_pagemarker/`** - Main package source code
   - **`data/`** - Dictionary files (Greek word frequency list)
 

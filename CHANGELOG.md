@@ -1,5 +1,16 @@
 # Changelog
 
+## Help Page - 2026-05-18
+
+### Added
+- **`tools/help.html`**: Single-file user-facing reference for the visual marker editor. Vanilla HTML/CSS only, zero external dependencies, matches the editor's design tokens. Sections: Quick Start, All Actions (table), Keyboard Shortcuts, Auto-save & Recovery, Best Practices, Troubleshooting, Known Limitations, and pipeline context.
+- **Sidebar link in `tools/page-marker-editor.html`**: A small "Need more help?" link at the bottom of the existing instructions sidebar opens `help.html` in a new tab. Editor core logic untouched.
+
+### Design Note
+The help page is a separate single file (Option A) rather than an in-editor modal. Reason: distribution model — the editor is shared by sending the HTML file directly, and `help.html` can be sent alongside (or zipped together) without bloating the editor or coupling docs to it. The vanilla CSS duplication is intentional, honoring the "single-file, no frameworks, no build step" constraint.
+
+---
+
 ## PDF Splitting - 2025-03-23 (Phase 12)
 
 ### Added
