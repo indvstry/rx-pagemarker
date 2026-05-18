@@ -47,6 +47,9 @@ xrdd_*.json
 # Sample files (large PDFs/HTMLs for testing)
 sample-files/
 
+# GSD planning artifacts (retired — see TASKS.md for outstanding work)
+.planning/
+
 # Your actual book files (adjust as needed)
 # book.html
 # book.pdf

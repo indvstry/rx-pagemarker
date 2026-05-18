@@ -641,7 +641,6 @@ The `--two-column` flag was designed for column-aware extraction but has issues:
   - Column reading order issues
   - Page headers (e.g., "KE/2025") not in HTML
 
-<!-- GSD:project-start source:PROJECT.md -->
 ## Project
 
 **RX Page Marker**
@@ -656,24 +655,7 @@ A Python CLI tool and browser-based visual editor for inserting page number mark
 - **No frameworks**: Vanilla JS only in the editor — no React, Vue, etc.
 - **Browser compatibility**: Must work in modern browsers (Chrome, Firefox, Safari)
 - **Backwards compatible**: Editor must continue to load existing marked HTML files without breaking
-<!-- GSD:project-end -->
 
-<!-- GSD:workflow-start source:GSD defaults -->
-## GSD Workflow Enforcement
+### Outstanding Work
 
-Before using Edit, Write, or other file-changing tools, start work through a GSD command so planning artifacts and execution context stay in sync.
-
-Use these entry points:
-- `/gsd:quick` for small fixes, doc updates, and ad-hoc tasks
-- `/gsd:debug` for investigation and bug fixing
-- `/gsd:execute-phase` for planned phase work
-
-Do not make direct repo edits outside a GSD workflow unless the user explicitly asks to bypass it.
-<!-- GSD:workflow-end -->
-
-<!-- GSD:profile-start -->
-## Developer Profile
-
-> Profile not yet configured. Run `/gsd:profile-user` to generate your developer profile.
-> This section is managed by `generate-claude-profile` -- do not edit manually.
-<!-- GSD:profile-end -->
+See `TASKS.md` at repo root for the active task list (editor navigation, validation, precision improvements, out-of-scope items, and architectural decisions).
