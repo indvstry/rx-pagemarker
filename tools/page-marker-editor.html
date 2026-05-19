@@ -174,6 +174,66 @@
             border: 1px solid #ccc;
         }
 
+        /* ==================== ARTICLE NAVIGATION ==================== */
+        /* Right-hand outline built from the InDesign article-boundary
+         * classes already present in the export. Click an entry to
+         * scroll the document to that article. Preview-only — this panel
+         * lives outside #editor so it is never part of the export. */
+        .article-nav {
+            width: 280px;
+            background: white;
+            padding: 20px 14px;
+            border-left: 1px solid #ddd;
+            overflow-y: auto;
+        }
+
+        .article-nav h3 {
+            margin: 0 0 12px 0;
+            color: #2c3e50;
+            font-size: 16px;
+        }
+
+        .article-nav .anav-empty {
+            color: #999;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        /* Non-clickable section banner (e.g. ΝΟΜΟΛΟΓΙΑ) */
+        .article-nav .anav-section {
+            margin: 16px 0 6px;
+            font-size: 12px;
+            font-weight: bold;
+            letter-spacing: 0.5px;
+            color: #7f8c8d;
+            text-transform: uppercase;
+        }
+
+        .article-nav .anav-section:first-of-type {
+            margin-top: 0;
+        }
+
+        /* Clickable article entry — scrolls the document on click */
+        .article-nav .anav-item {
+            display: block;
+            width: 100%;
+            text-align: left;
+            background: none;
+            border: none;
+            padding: 6px 8px;
+            margin: 0;
+            font-size: 13px;
+            line-height: 1.4;
+            color: #34495e;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .article-nav .anav-item:hover {
+            background: #e8f6fd;
+            color: #2980b9;
+        }
+
         /* ==================== EDITOR AREA ==================== */
         /* Main content area with paper-like styling for the document */
         .editor-container {
@@ -207,6 +267,14 @@
         .editor p, .editor div {
             line-height: 1.8;
             margin-bottom: 1em;
+        }
+
+        /* InDesign footnote lists carry the number as inline anchor text
+         * (e.g. "<a>1</a>. ..."), so the <ol> auto-number renders as a
+         * duplicate. Hide the list marker — preview-only, no effect on
+         * the downloaded HTML. */
+        .editor li._idFootnote {
+            list-style: none;
         }
 
         /* ==================== PAGE MARKERS ==================== */
@@ -386,9 +454,10 @@
         }
 
         /* ==================== RESPONSIVE ==================== */
-        /* Hide instructions sidebar on narrow screens (<900px) */
+        /* Hide both side panels on narrow screens (<900px) */
         @media (max-width: 900px) {
-            .instructions {
+            .instructions,
+            .article-nav {
                 display: none;
             }
         }
@@ -461,6 +530,11 @@
 
         <div class="editor-container">
             <div class="editor empty" id="editor">Load an HTML file to start editing</div>
+        </div>
+
+        <div class="article-nav" id="articleNav">
+            <h3>Articles</h3>
+            <div class="anav-empty">Load a file to see its articles.</div>
         </div>
     </div>
 
@@ -576,6 +650,7 @@
 
         const fileInput = document.getElementById('fileInput');
         const editor = document.getElementById('editor');
+        const articleNav = document.getElementById('articleNav');
         const downloadBtn = document.getElementById('downloadBtn');
         const copyBodyBtn = document.getElementById('copyBodyBtn');
         const addModeBtn = document.getElementById('addModeBtn');
@@ -694,10 +769,170 @@
             updateButtons();
             updateStats();
             setupMarkerDragging();
+            buildArticleNav();
 
             downloadBtn.disabled = false;
             copyBodyBtn.disabled = false;
             addModeBtn.disabled = false;
+        }
+
+        // ============================================================
+        // ARTICLE NAVIGATION
+        // ============================================================
+        /*
+         * The right-hand "Articles" panel is a flat outline of the loaded
+         * document: non-clickable section banners interleaved with
+         * clickable article entries that scroll the document on click.
+         *
+         * buildArticleNav() does the generic DOM work and is fully wired.
+         * The magazine-specific knowledge — *which* paragraph-style classes
+         * mark a section vs. an article, and what text to label them with —
+         * lives entirely in classifyArticleBoundary() below. That is the
+         * one piece left for you to write.
+         */
+
+        /**
+         * Decide whether a block element marks an article-navigation entry.
+         *
+         * Called once per <h1-6>/<p>/<div> in the loaded document. The
+         * InDesign export tags boundaries with paragraph-style classes.
+         * In XRID_December_marked.html the relevant ones are:
+         *
+         *   _rubrika_ArticleTheory / _rubrika_ArticleNomologia
+         *        → section banners: "ΑΡΘΡΟΓΡΑΦΙΑ", "ΝΟΜΟΛΟΓΙΑ",
+         *          "ΙΔΙΩΤΙΚΕΣ ΓΝΩΜΟΔΟΤΗΣΕΙΣ"
+         *   ArticleTheory_Title
+         *        → an essay/opinion article, e.g.
+         *          "Τα υποκειμενικά όρια της συμφωνίας διαιτησίας"
+         *   ArticleNomologia_tag
+         *        → legal-domain grouping, e.g. "ΑΣΤΙΚΟ ΔΙΚΑΙΟ",
+         *          "ΕΜΠΟΡΙΚΟ ΔΙΚΑΙΟ"
+         *   ArticleNomologia_NumberAndDate
+         *        → an individual court decision, e.g. "Αριθμ. 664/2025"
+         *
+         * Other magazines may use different class names — this function is
+         * the single place that encodes that mapping.
+         *
+         * @param {Element} el  A block element from the loaded document.
+         * @returns {null | {type: 'section'|'article', label?: string}}
+         *   - null               → not a navigation boundary (most elements)
+         *   - {type:'section'}   → non-clickable banner
+         *   - {type:'article'}   → clickable entry that scrolls to `el`
+         *   `label` is optional; omit it to use the element's own text.
+         *
+         * TODO(you): implement the mapping for the per-article flat list.
+         * Decisions that are yours to make, not mine to guess:
+         *   • Is the legal-domain tag (ArticleNomologia_tag) a 'section'
+         *     subheader, or not shown at all?
+         *   • Is each court decision (…_NumberAndDate) its own 'article',
+         *     or only the essay titles?
+         *   • Do you want the rubric banner (_rubrika_*) shown as a
+         *     'section', given the tag may already group things?
+         *
+         * Example shape (delete and replace with your real rules):
+         *   const cls = el.className || '';
+         *   if (/_rubrika_/.test(cls))                return { type: 'section' };
+         *   if (/ArticleNomologia_tag\b/.test(cls))   return { type: 'section' };
+         *   if (/ArticleTheory_Title\b/.test(cls))    return { type: 'article' };
+         *   if (/ArticleNomologia_NumberAndDate\b/.test(cls))
+         *                                             return { type: 'article' };
+         *   return null;
+         */
+        function classifyArticleBoundary(el) {
+            const cls = el.className || '';
+            // Top-level magazine rubrics (ΝΟΜΟΛΟΓΙΑ, ΑΡΘΡΟΓΡΑΦΙΑ, …) —
+            // highest-level banners.
+            if (/_rubrika_/.test(cls))
+                return { type: 'section' };
+            // Legal-domain groupings and their sub-groupings
+            // (ΑΣΤΙΚΟ ΔΙΚΑΙΟ → ΓΕΝΙΚΕΣ ΑΡΧΕΣ) — second-level banners.
+            if (/\bArticleNomologia_tag(?:_sub)?\b/.test(cls))
+                return { type: 'section' };
+            // Essay / opinion-piece titles — clickable entries.
+            if (/\bArticleTheory_Title\b/.test(cls))
+                return { type: 'article' };
+            // Individual court decisions (Αριθμ. 664/2025) — clickable entries.
+            if (/\bArticleNomologia_NumberAndDate\b/.test(cls))
+                return { type: 'article' };
+            return null;
+        }
+
+        /** Collapse whitespace and cap label length for the nav panel. */
+        function articleNavLabel(text) {
+            text = (text || '').replace(/\s+/g, ' ').trim();
+            return text.length > 80 ? text.slice(0, 79) + '…' : text;
+        }
+
+        /** Reset the panel to just its <h3> heading, return that heading. */
+        function resetArticleNav() {
+            while (articleNav.firstChild) {
+                articleNav.removeChild(articleNav.firstChild);
+            }
+            const h = document.createElement('h3');
+            h.textContent = 'Articles';
+            articleNav.appendChild(h);
+        }
+
+        /** Append a muted placeholder line to the panel. */
+        function articleNavPlaceholder(text) {
+            const div = document.createElement('div');
+            div.className = 'anav-empty';
+            div.textContent = text;
+            articleNav.appendChild(div);
+        }
+
+        /**
+         * Rebuild the Articles panel from the current editor DOM.
+         * Re-run on every full render (load / restore / undo-redo) because
+         * those paths replace editor nodes, invalidating click closures.
+         */
+        function buildArticleNav() {
+            resetArticleNav();
+
+            if (editor.classList.contains('empty')) {
+                articleNavPlaceholder('Load a file to see its articles.');
+                return;
+            }
+
+            const blocks = editor.querySelectorAll('h1, h2, h3, h4, h5, h6, p, div');
+            let count = 0;
+
+            blocks.forEach(function (el) {
+                let entry;
+                try {
+                    entry = classifyArticleBoundary(el);
+                } catch (e) {
+                    console.warn('[ArticleNav] classifier threw:', e.message);
+                    entry = null;
+                }
+                if (!entry) return;
+
+                if (entry.type === 'section') {
+                    const banner = document.createElement('div');
+                    banner.className = 'anav-section';
+                    banner.textContent = articleNavLabel(entry.label || el.textContent);
+                    articleNav.appendChild(banner);
+                    return;
+                }
+
+                if (entry.type === 'article') {
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'anav-item';
+                    btn.textContent = articleNavLabel(entry.label || el.textContent);
+                    btn.addEventListener('click', function () {
+                        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    });
+                    articleNav.appendChild(btn);
+                    count++;
+                }
+            });
+
+            if (count === 0) {
+                articleNavPlaceholder(
+                    'No articles detected — fill in classifyArticleBoundary() ' +
+                    'to map this file’s heading classes.');
+            }
         }
 
         // ============================================================
@@ -809,6 +1044,7 @@
                     updateButtons();
                     updateStats();
                     setupMarkerDragging();
+                    buildArticleNav();
 
                     downloadBtn.disabled = false;
                     copyBodyBtn.disabled = false;
@@ -1305,6 +1541,7 @@
 
             // Re-attach event listeners to markers (they don't persist in clones)
             setupMarkerDragging();
+            buildArticleNav();
             updateButtons();
             updateStats();
         }

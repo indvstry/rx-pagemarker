@@ -6,6 +6,11 @@
 
 ## Editor — Navigation
 
+- [x] **Articles panel** — right-hand outline of rubrics + legal-domain
+      sections with clickable essay-title / court-decision entries that
+      scroll the document. Policy isolated in `classifyArticleBoundary`;
+      preview-only, never exported. (CHANGELOG 2026-05-19.) Distinct from
+      the *marker*-list sidebar below, which is still pending.
 - [ ] Sidebar panel with clickable marker list (page number + text preview)
 - [ ] Click sidebar entry to scroll the document to that marker
 - [ ] Search / jump-to-page-number field

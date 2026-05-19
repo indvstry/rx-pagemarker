@@ -1,5 +1,16 @@
 # Changelog
 
+## Articles Navigation Panel - 2026-05-19
+
+### Added
+- **Articles panel in `tools/page-marker-editor.html`**: A right-hand outline of the loaded document. Non-clickable section banners (top-level rubrics ΝΟΜΟΛΟΓΙΑ / ΑΡΘΡΟΓΡΑΦΙΑ and legal-domain groupings ΑΣΤΙΚΟ ΔΙΚΑΙΟ / ΓΕΝΙΚΕΣ ΑΡΧΕΣ) interleaved with clickable entries (essay titles and individual court decisions) that smooth-scroll the document. Rebuilt on every full render (load / restore / undo-redo).
+- **`classifyArticleBoundary(el)`**: The single point of magazine-specific policy — maps InDesign paragraph-style classes to `section` / `article` / none. Mapping: `_rubrika_*` → section; `ArticleNomologia_tag` (+`_tag_sub`) → section; `ArticleTheory_Title` → article; `ArticleNomologia_NumberAndDate` → article.
+
+### Design Note
+The generic DOM machinery (`buildArticleNav` and helpers) was scaffolded earlier and is magazine-agnostic; only `classifyArticleBoundary` encodes which classes mean what, so porting to another magazine family touches one function. The panel lives **outside** `#editor`, so it is never serialized into the exported HTML — purely a viewing aid, by design. Word boundaries plus an explicit `(?:_sub)?` group prevent prefix collisions (`ArticleTheory_Title` vs `_Author`/`_PrimaryText`; `_tag` vs `_tag_sub`), verified against all 12 `Article*`/`_rubrika_*` classes in the XRID December export.
+
+---
+
 ## Help Page - 2026-05-18
 
 ### Added
