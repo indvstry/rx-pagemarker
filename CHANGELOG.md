@@ -1,5 +1,15 @@
 # Changelog
 
+## Add-Mode Hover Jitter Fix - 2026-05-20
+
+### Fixed
+- **`tools/page-marker-editor.html`**: Add-mode word highlight no longer jitters while hovering inside a word. `onAddModeHover` now bails out early when the cursor remains inside the existing `.word-highlight` span, so the DOM mutation (unwrap previous highlight + `range.surroundContents` new one) only runs on word transitions — not on every `mousemove` event at 60+ Hz.
+
+### Design Note
+The pre-fix path destroyed and recreated the highlight span on every mousemove regardless of whether the user had moved to a different word, which forced repeated layout/paint cycles and produced visible flicker on high-refresh displays. The same-word guard makes mousemove O(1) inside a word and only pays for DOM work when the highlighted word actually changes. A follow-up roadmap item (TASKS.md R0) tracks replacing the wrap-the-text approach with a `position: absolute` overlay element, which also resolves the secondary text-node fragmentation that `clearWordHighlight` leaves behind (no `parent.normalize()` after unwrap).
+
+---
+
 ## Sidebar Action Order by Frequency - 2026-05-20
 
 ### Changed

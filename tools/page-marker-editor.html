@@ -1711,6 +1711,11 @@
                 return;
             }
 
+            // Same-word guard: skip DOM churn when the cursor stays on the highlighted word.
+            if (highlightedWord && highlightedWord.contains(pos.node)) {
+                return;
+            }
+
             // Check if we're inside a marker (don't highlight)
             let node = pos.node;
             while (node && node !== editor) {
