@@ -509,7 +509,7 @@
                 <li><strong>Drag</strong> any red page marker badge to move it</li>
                 <li><strong>Drop</strong> it between words where the page break should be</li>
                 <li><strong>Double-click</strong> a marker to edit or delete it</li>
-                <li><strong>Add</strong> missing markers: click "+ Add Marker", then click each word (Escape to exit)</li>
+                <li><strong>Add</strong> missing markers: press <kbd>A</kbd> (or click "+ Add Marker"), then click each word (Escape to exit)</li>
                 <li><strong>Download</strong> the corrected HTML when done</li>
             </ol>
 
@@ -1854,6 +1854,17 @@
         // Escape key exits add mode
         document.addEventListener('keydown', function(e) {
             if (e.key === 'Escape' && addMode) {
+                toggleAddMode();
+            }
+        });
+
+        // 'A' key toggles add mode — bare key only. Ignore Ctrl/Cmd/Alt+A so the
+        // browser's select-all and other combos still work. No-op until a file
+        // is loaded (the toolbar button reflects the same disabled state).
+        document.addEventListener('keydown', function(e) {
+            if ((e.key === 'a' || e.key === 'A') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                if (addModeBtn.disabled) return;
+                e.preventDefault();
                 toggleAddMode();
             }
         });

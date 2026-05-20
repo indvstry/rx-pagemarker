@@ -1,5 +1,15 @@
 # Changelog
 
+## 'A' Keyboard Shortcut for Add Mode - 2026-05-20
+
+### Added
+- **`tools/page-marker-editor.html`**: Pressing the bare <kbd>A</kbd> key (no modifiers) toggles add mode, mirroring the toolbar button. Ignored while the file picker is unloaded (button is disabled), and explicitly excludes <kbd>Ctrl</kbd>/<kbd>Cmd</kbd>/<kbd>Alt</kbd>+<kbd>A</kbd> so browser select-all is preserved. Listener lives next to the existing <kbd>Esc</kbd> handler. Sidebar instructions and `tools/help.html` updated.
+
+### Design Note
+The editor has no `<textarea>`, no `contenteditable`, and the only `<input>` is a file picker — so a single-letter shortcut has no surface it can shadow. `prompt()` is a browser-native modal that pauses JS execution, so keystrokes typed into the page-number dialog never reach the document. Combined with sticky add mode, the workflow for many sequential markers is now: press <kbd>A</kbd> → click word → <kbd>Enter</kbd> → click word → <kbd>Enter</kbd> → … → <kbd>Esc</kbd>.
+
+---
+
 ## Sticky Add Mode - 2026-05-20
 
 ### Changed
