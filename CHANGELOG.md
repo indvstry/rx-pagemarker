@@ -1,5 +1,16 @@
 # Changelog
 
+## Sidebar Warning — Article Summaries - 2026-05-20
+
+### Added
+- **`tools/page-marker-editor.html`**: New <em>⚠️ Warnings</em> section in the sidebar instructions, structured as an emoji-prefixed list to match <em>Editing Actions</em>. First entry: <strong>📰 Don't add page markers to article summaries</strong> — they belong before the article body, not inside the summary text.
+- **`tools/help.html`**: Equivalent guidance added as the first <em>Best Practices</em> bullet, with the same ⚠️ 📰 prefix and a fuller explanation (summaries are editorial framing, not part of the printed page-number sequence).
+
+### Design Note
+Two-column magazine articles often open with a short summary / standfirst above the body. The print page number refers to where the body begins, not where the editorial framing begins, so a marker placed inside the summary would point readers to the wrong landing position. The list structure (rather than a `.warn` callout) makes the section trivially extensible — additional rules can be added as new bullets without restyling.
+
+---
+
 ## Add-Mode Hover Jitter Fix - 2026-05-20
 
 ### Fixed

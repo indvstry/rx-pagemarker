@@ -257,6 +257,7 @@
 
         <h2>Best Practices</h2>
         <ul>
+            <li>⚠️ 📰 <strong>Don't add markers to article summaries:</strong> the marker belongs before the article body, not inside the summary / standfirst text. Summaries are editorial framing and aren't part of the printed page-number sequence.</li>
             <li><strong>Markers in titles or headings:</strong> if a marker lands at the start of a heading, move it to the start of the first body paragraph instead. This produces cleaner EPUB rendering and avoids disrupting heading styles.</li>
             <li><strong>Two-column magazines:</strong> when both columns on a page start a different article, you'll see two markers with the same page number (e.g. two <em>36</em>s). That's correct — they get distinct internal IDs (<code>page36</code>, <code>page36-2</code>).</li>
             <li><strong>Re-editing a single article:</strong> use <em>Copy Body Content</em>, paste the article into a fresh file, edit its markers, then copy back into the larger document.</li>
