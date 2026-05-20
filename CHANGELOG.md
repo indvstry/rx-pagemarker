@@ -1,5 +1,15 @@
 # Changelog
 
+## Sidebar Action Order by Frequency - 2026-05-20
+
+### Changed
+- **`tools/page-marker-editor.html`**: Editing-actions list reordered to reflect actual usage frequency in the magazine workflow (per the XRID December 2025 session: ~22 markers added manually per issue vs. far fewer moves/edits). New order: **Add (bulk) → Quick add → Move → Quick delete → Edit / Delete**. The two add operations cluster at the top since they dominate the workload; movement and deletion follow because they're occasional cleanup; double-click edit is last because changing a page number after the fact is rare.
+
+### Design Note
+The previous order grouped semantically (move/edit together, add/delete together). Frequency-ordering instead puts the action you'll reach for most at the top of the list — useful for skimming once muscle memory takes over.
+
+---
+
 ## Sidebar Refresh + Key-Cap Styling - 2026-05-20
 
 ### Changed
