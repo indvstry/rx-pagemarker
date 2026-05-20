@@ -1,5 +1,15 @@
 # Changelog
 
+## Sticky Add Mode - 2026-05-20
+
+### Changed
+- **`tools/page-marker-editor.html`**: Add mode no longer auto-exits after inserting a marker. The user can now click multiple words in succession to insert several markers in one session, then press <kbd>Esc</kbd> (or click the toolbar button again) to exit. Toast message updated to surface the new exit affordance. Mirrored in the sidebar instructions and `tools/help.html`.
+
+### Design Note
+The two-column magazine workflow routinely needs 20+ manual markers per issue (see `XRID December 2025` notes in CLAUDE.md). Forcing the user back to the top-left toolbar between every insertion was the dominant friction. The fix is one deleted line — every other piece of the flow (sequential page-number suggestion via `getNextPageNumber()`, Escape handler, toggle on the toolbar button) already supported sticky behavior; the auto-exit was the only thing fighting it.
+
+---
+
 ## Articles Navigation Panel - 2026-05-19
 
 ### Added

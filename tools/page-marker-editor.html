@@ -509,7 +509,7 @@
                 <li><strong>Drag</strong> any red page marker badge to move it</li>
                 <li><strong>Drop</strong> it between words where the page break should be</li>
                 <li><strong>Double-click</strong> a marker to edit or delete it</li>
-                <li><strong>Add</strong> missing markers: click "+ Add Marker", then click a word</li>
+                <li><strong>Add</strong> missing markers: click "+ Add Marker", then click each word (Escape to exit)</li>
                 <li><strong>Download</strong> the corrected HTML when done</li>
             </ol>
 
@@ -1614,7 +1614,7 @@
                 editor.addEventListener('mousemove', onAddModeHover);
                 editor.addEventListener('click', onAddModeClick);
                 editor.addEventListener('mouseleave', clearWordHighlight);
-                showToast('Click on a word to add marker after it', 'success');
+                showToast('Click words to add markers — Escape when done', 'success');
             } else {
                 // Remove add mode event listeners
                 editor.removeEventListener('mousemove', onAddModeHover);
@@ -1765,8 +1765,8 @@
             // Insert marker after the highlighted word
             insertMarkerAfterWord(highlightedWord, pageNum.trim());
 
-            // Exit add mode after successful insertion
-            toggleAddMode();
+            // Stay in add mode so the user can chain multiple markers; Escape (or
+            // clicking the toolbar button again) exits.
         }
 
         /**
