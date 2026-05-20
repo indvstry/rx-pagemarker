@@ -510,6 +510,7 @@
                 <li><strong>Drop</strong> it between words where the page break should be</li>
                 <li><strong>Double-click</strong> a marker to edit or delete it</li>
                 <li><strong>Add</strong> missing markers: press <kbd>A</kbd> (or click "+ Add Marker"), then click each word (Escape to exit)</li>
+                <li><strong>Quick add</strong>: hold <kbd>Alt</kbd> and click any word — one-shot, no mode toggle</li>
                 <li><strong>Download</strong> the corrected HTML when done</li>
             </ol>
 
@@ -1867,6 +1868,70 @@
                 e.preventDefault();
                 toggleAddMode();
             }
+        });
+
+        // Alt+Click a word to insert a marker after it — one-shot, no mode toggle.
+        // Reuses the same wrap-and-insert pipeline as add mode; the only diff is
+        // we wrap on the click itself instead of relying on the hover-maintained
+        // highlightedWord. Bails out in add mode (which already handles clicks)
+        // and on markers (reserved for the symmetric Alt+Click-to-delete flow).
+        editor.addEventListener('click', function(e) {
+            if (!e.altKey) return;
+            if (addModeBtn.disabled) return;
+            if (addMode) return;
+            if (e.target.classList && e.target.classList.contains('page-marker')) return;
+
+            e.preventDefault();
+
+            const pos = getCaretPosition(e.clientX, e.clientY);
+            if (!pos || pos.node.nodeType !== Node.TEXT_NODE) {
+                showToast('Alt+Click a word to add a marker', 'error');
+                return;
+            }
+
+            // Reject clicks inside an existing marker (parent chain check, since
+            // e.target may be the inner text node when marker has child elements).
+            let node = pos.node;
+            while (node && node !== editor) {
+                if (node.classList && node.classList.contains('page-marker')) return;
+                node = node.parentNode;
+            }
+
+            const textNode = pos.node;
+            const boundaries = findWordBoundaries(textNode.textContent, pos.offset);
+            if (boundaries.start === boundaries.end) {
+                showToast('Alt+Click a word, not whitespace', 'error');
+                return;
+            }
+
+            const range = document.createRange();
+            range.setStart(textNode, boundaries.start);
+            range.setEnd(textNode, boundaries.end);
+
+            const wrapper = document.createElement('span');
+            wrapper.className = 'word-highlight';
+            try {
+                range.surroundContents(wrapper);
+            } catch (err) {
+                // Range crossed inline-element boundary — caller should pick a
+                // cleaner click point. Matches the same caveat in hover mode.
+                console.warn('[Alt+Click] Could not wrap word:', err.message);
+                showToast('Try a different click point on the word', 'error');
+                return;
+            }
+
+            const pageNum = prompt('Enter page number:', getNextPageNumber());
+
+            if (pageNum === null || pageNum.trim() === '') {
+                // User cancelled — unwrap the temporary span so the DOM stays clean.
+                const parent = wrapper.parentNode;
+                while (wrapper.firstChild) parent.insertBefore(wrapper.firstChild, wrapper);
+                parent.removeChild(wrapper);
+                parent.normalize();
+                return;
+            }
+
+            insertMarkerAfterWord(wrapper, pageNum.trim());
         });
 
         // ============================================================

@@ -1,5 +1,15 @@
 # Changelog
 
+## Alt+Click Quick-Add - 2026-05-20
+
+### Added
+- **`tools/page-marker-editor.html`**: Hold <kbd>Alt</kbd> and click any word to insert a marker after it — one-shot, no mode toggle. Reuses the same `getCaretPosition` / `findWordBoundaries` / `insertMarkerAfterWord` pipeline as add mode, so wrap semantics and the suggested-page-number behavior are identical. Bails out cleanly when in add mode (which already handles clicks) and on existing markers (reserved for the symmetric Alt+Click-to-delete flow next). Sidebar instructions and `tools/help.html` updated, including a new entry in the keyboard-shortcuts list.
+
+### Design Note
+This is the mode-less counterpart to add mode + <kbd>A</kbd> shortcut. The intent: for sparse one-off corrections (e.g., "I missed one marker on page 794"), the user shouldn't have to enter/exit a mode at all. The cancel path explicitly unwraps the temporary `word-highlight` span and calls `parent.normalize()` so a cancelled prompt leaves the DOM byte-identical to its prior state.
+
+---
+
 ## 'A' Keyboard Shortcut for Add Mode - 2026-05-20
 
 ### Added
