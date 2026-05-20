@@ -166,12 +166,33 @@
             font-size: 13px;
         }
 
+        /* Key-cap style: thicker bottom border + soft shadow gives a subtle
+         * "physical key" feel without being loud. Monospace stack keeps
+         * letter-spacing predictable across single-letter shortcuts like 'A'. */
         .instructions kbd {
-            background: #eee;
-            padding: 2px 6px;
-            border-radius: 3px;
-            font-size: 12px;
-            border: 1px solid #ccc;
+            display: inline-block;
+            min-width: 1.2em;
+            padding: 1px 7px;
+            background: #fafbfc;
+            border: 1px solid #d1d5da;
+            border-bottom-width: 2px;
+            border-radius: 4px;
+            box-shadow: 0 1px 0 rgba(27, 31, 35, 0.08);
+            font-family: 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 11px;
+            font-weight: 600;
+            color: #24292e;
+            text-align: center;
+            line-height: 1.5;
+            vertical-align: 1px;
+        }
+
+        /* Editing-actions list — emoji-anchored, no bullet (the emoji is the
+         * visual anchor). Inherits .instructions li for spacing/font-size. */
+        .instructions ul.actions {
+            list-style: none;
+            padding-left: 0;
+            margin: 0;
         }
 
         /* ==================== ARTICLE NAVIGATION ==================== */
@@ -506,17 +527,21 @@
             <h3>How to Use</h3>
             <ol>
                 <li><strong>Load</strong> your marked HTML file using the button above</li>
-                <li><strong>Drag</strong> any red page marker badge to move it</li>
-                <li><strong>Drop</strong> it between words where the page break should be</li>
-                <li><strong>Double-click</strong> a marker to edit or delete it</li>
-                <li><strong>Add</strong> missing markers: press <kbd>A</kbd> (or click "+ Add Marker"), then click each word (Escape to exit)</li>
-                <li><strong>Quick add</strong>: hold <kbd>Alt</kbd> and click any word — one-shot, no mode toggle</li>
-                <li><strong>Quick delete</strong>: hold <kbd>Alt</kbd> and click any marker — undo with <kbd>Ctrl</kbd>+<kbd>Z</kbd> if needed</li>
+                <li><strong>Edit</strong> markers using the actions below</li>
                 <li><strong>Download</strong> the corrected HTML when done</li>
             </ol>
 
+            <h3 style="margin-top: 25px;">Editing Actions</h3>
+            <ul class="actions">
+                <li>📍 <strong>Move</strong>: drag a red marker between two words</li>
+                <li>✏️ <strong>Edit / Delete</strong>: double-click a marker (leave field empty to delete)</li>
+                <li>➕ <strong>Add (bulk)</strong>: press <kbd>A</kbd> or click <em>+ Add Marker</em>, then click each word — <kbd>Esc</kbd> exits</li>
+                <li>⚡ <strong>Quick add</strong>: <kbd>Alt</kbd>+click a word (one-shot, no mode)</li>
+                <li>🗑️ <strong>Quick delete</strong>: <kbd>Alt</kbd>+click a marker</li>
+            </ul>
+
             <div class="tip">
-                <strong>Tip:</strong> Use <kbd>Ctrl</kbd>+<kbd>Z</kbd> to undo and <kbd>Ctrl</kbd>+<kbd>Y</kbd> to redo. Zoom with the +/- buttons for detailed positioning.
+                <strong>Tip:</strong> <kbd>Ctrl</kbd>+<kbd>Z</kbd> undoes any change, <kbd>Ctrl</kbd>+<kbd>Y</kbd> redoes. Use the <em>+/−</em> toolbar buttons to zoom for fine positioning.
             </div>
 
             <h3 style="margin-top: 25px;">About Markers</h3>

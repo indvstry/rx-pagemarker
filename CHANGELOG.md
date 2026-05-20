@@ -1,5 +1,16 @@
 # Changelog
 
+## Sidebar Refresh + Key-Cap Styling - 2026-05-20
+
+### Changed
+- **`tools/page-marker-editor.html`**: Sidebar instructions restructured. The numbered workflow shrinks to three high-level steps (Load → Edit → Download); a new <em>Editing Actions</em> section presents the six individual operations as an emoji-anchored list (📍 Move / ✏️ Edit / ➕ Add bulk / ⚡ Quick add / 🗑️ Quick delete). This breaks the previous "8 sequentially-numbered items that aren't actually sequential" mismatch and makes the related add/delete shortcuts visually adjacent.
+- **`tools/page-marker-editor.html` + `tools/help.html`**: `<kbd>` styling upgraded from a flat gray pill to a "key-cap" look — thicker bottom border, soft shadow, monospace font, raised inline-block. Same rule applied in both files so the visual vocabulary stays consistent across the editor and the help page.
+
+### Design Note
+The numbering issue had been there since the editor was first written: mixing "load the file" (a one-time setup step) with "drag a marker" (a repeated editing action) in the same `<ol>` produced ordinal labels that didn't match the user's mental model. Splitting into workflow vs. actions reflects how users actually use the tool: load once, edit repeatedly using whichever action fits, save once. Emojis serve as visual anchors for skimming — useful in a personal-tool context where the developer-as-user wants to scan rather than read. Used sparingly (one per action, no decorative use elsewhere) to avoid the "AI-generated UI" tell.
+
+---
+
 ## Alt+Click Quick-Delete - 2026-05-20
 
 ### Added
