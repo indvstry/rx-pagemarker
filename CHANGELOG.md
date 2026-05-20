@@ -1,5 +1,20 @@
 # Changelog
 
+## Filename Lost On Download After Auto-Restore - 2026-05-20
+
+### Fixed
+- **`tools/page-marker-editor.html`**: Downloads after an auto-save restore no longer produce a filename like <code>-paginated.html</code> with the original stem stripped. The bug: <code>autoSave()</code> persisted <code>originalHTML</code>, <code>editorContent</code>, and <code>timestamp</code>, but <strong>not</strong> <code>originalFileName</code>. After a restore (or any session that came back from <code>localStorage</code> without re-touching the file picker) the global stayed empty, and the download path concatenated <code>'' + '-paginated.html'</code>.
+
+### Changes
+- `autoSave()` now persists `originalFileName` alongside the other state.
+- The restore path reads it back with a `|| ''` fallback so older auto-saves don't throw.
+- The download handler now uses `(originalFileName || 'document')` as the base name, so a restore from a pre-fix auto-save still produces a sensible `document-paginated.html` instead of a leading-hyphen file.
+
+### Design Note
+The bug came from a partial schema in `localStorage` — the file-picker path set `originalFileName`, but the restore path didn't read it. Asymmetries like that are easy to introduce when two load paths (picker, restore) are written in different sessions and one piece of state lives outside the persisted schema. The defensive default in the download handler isn't strictly needed once persistence is fixed, but it protects users restoring sessions saved before this commit landed.
+
+---
+
 ## Sidebar Warning — Article Summaries - 2026-05-20
 
 ### Added

@@ -983,6 +983,7 @@
             try {
                 const data = {
                     originalHTML: originalHTML,
+                    originalFileName: originalFileName,
                     editorContent: editor.innerHTML,
                     timestamp: Date.now()
                 };
@@ -1064,6 +1065,7 @@
             if (confirm('⚠️ Found unsaved work from ' + ageText + '.\n\nDo you want to restore it?\n\nClick OK to restore, or Cancel to start fresh.')) {
                 try {
                     originalHTML = data.originalHTML;
+                    originalFileName = data.originalFileName || '';
                     // Restore editor content (user's own saved data from localStorage)
                     editor.innerHTML = data.editorContent;
                     editor.classList.remove('empty');
@@ -2149,7 +2151,10 @@
 
             // Trigger file download using Blob and temporary link
             var blob = new Blob([output], { type: 'text/html;charset=utf-8' });
-            var filename = originalFileName.replace(/\.html?$/i, '') + '-paginated.html';
+            // Fallback to 'document' when originalFileName is empty (e.g., restored from an
+            // auto-save that pre-dates filename persistence) so we never emit '-paginated.html'.
+            var baseName = (originalFileName || 'document').replace(/\.html?$/i, '');
+            var filename = baseName + '-paginated.html';
 
             var url = URL.createObjectURL(blob);
             var a = document.createElement('a');
