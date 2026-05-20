@@ -1,5 +1,15 @@
 # Changelog
 
+## Alt+Click Quick-Delete - 2026-05-20
+
+### Added
+- **`tools/page-marker-editor.html`**: Hold <kbd>Alt</kbd> and click any marker to delete it immediately — symmetric with the quick-add gesture from the previous commit. <kbd>Alt</kbd>+Click is now a "toggle marker at this location": click a word → add, click a marker → delete. Routes through the existing `deleteMarker()` (so undo via `saveState()` works unchanged). Both the direct-target check and the parent-chain walk are now delete branches instead of bails. Sidebar instructions and `tools/help.html` updated, including a new entry in the keyboard-shortcuts list.
+
+### Design Note
+No confirmation dialog. <kbd>Ctrl</kbd>+<kbd>Z</kbd> is already wired up for every marker mutation, and confirmations on undoable destructive actions train users to dismiss prompts reflexively — losing the protective signal when it actually matters. The two-column magazine workflow needs to clear misplaced markers fast; the one-keystroke recovery via undo is the right safety net.
+
+---
+
 ## Alt+Click Quick-Add - 2026-05-20
 
 ### Added

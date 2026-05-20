@@ -511,6 +511,7 @@
                 <li><strong>Double-click</strong> a marker to edit or delete it</li>
                 <li><strong>Add</strong> missing markers: press <kbd>A</kbd> (or click "+ Add Marker"), then click each word (Escape to exit)</li>
                 <li><strong>Quick add</strong>: hold <kbd>Alt</kbd> and click any word — one-shot, no mode toggle</li>
+                <li><strong>Quick delete</strong>: hold <kbd>Alt</kbd> and click any marker — undo with <kbd>Ctrl</kbd>+<kbd>Z</kbd> if needed</li>
                 <li><strong>Download</strong> the corrected HTML when done</li>
             </ol>
 
@@ -1870,18 +1871,25 @@
             }
         });
 
-        // Alt+Click a word to insert a marker after it — one-shot, no mode toggle.
-        // Reuses the same wrap-and-insert pipeline as add mode; the only diff is
-        // we wrap on the click itself instead of relying on the hover-maintained
-        // highlightedWord. Bails out in add mode (which already handles clicks)
-        // and on markers (reserved for the symmetric Alt+Click-to-delete flow).
+        // Alt+Click is a "toggle marker at this location" gesture:
+        //   • Alt+Click a word    → insert a marker after it (one-shot, no mode)
+        //   • Alt+Click a marker  → delete that marker
+        // Both branches reuse existing helpers (insertMarkerAfterWord / deleteMarker)
+        // so undo via saveState() works uniformly. Bails out in add mode, which
+        // already owns plain clicks.
         editor.addEventListener('click', function(e) {
             if (!e.altKey) return;
             if (addModeBtn.disabled) return;
             if (addMode) return;
-            if (e.target.classList && e.target.classList.contains('page-marker')) return;
 
             e.preventDefault();
+
+            // Direct target hit — fastest path when the click landed on the
+            // marker badge itself rather than overlapping text.
+            if (e.target.classList && e.target.classList.contains('page-marker')) {
+                deleteMarker(e.target);
+                return;
+            }
 
             const pos = getCaretPosition(e.clientX, e.clientY);
             if (!pos || pos.node.nodeType !== Node.TEXT_NODE) {
@@ -1889,11 +1897,15 @@
                 return;
             }
 
-            // Reject clicks inside an existing marker (parent chain check, since
-            // e.target may be the inner text node when marker has child elements).
+            // Walk the parent chain in case the click resolved to a text node
+            // inside a marker (markers can have child text), in which case the
+            // intent is delete rather than add.
             let node = pos.node;
             while (node && node !== editor) {
-                if (node.classList && node.classList.contains('page-marker')) return;
+                if (node.classList && node.classList.contains('page-marker')) {
+                    deleteMarker(node);
+                    return;
+                }
                 node = node.parentNode;
             }
 
