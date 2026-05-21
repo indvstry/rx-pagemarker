@@ -494,8 +494,35 @@ Review Mode Output:
   - **`page-marker-editor.html`** - Visual drag-and-drop marker editor
   - **`pdf-splitter.html`** - Visual PDF page-range extractor
   - **`help.html`** - User-facing reference for the editor (linked from sidebar)
+- **`scripts/`** - Maintenance scripts (release packaging, etc.)
 - **`src/rx_pagemarker/`** - Main package source code
   - **`data/`** - Dictionary files (Greek word frequency list)
+
+## Releasing
+
+Distributable ZIPs of the editor (for non-technical recipients) are built by `scripts/release.sh`. Versioning mirrors the sibling project `rx-ind-epub-gen`:
+
+- **Single source of truth**: a `vX.Y.Z` git tag.
+- **Python package version** is derived dynamically via `setuptools-scm` (see `[tool.setuptools_scm]` in `pyproject.toml`). The generated `src/rx_pagemarker/_version.py` is gitignored.
+- **ZIP filename** is derived from the same tag, so the wheel and the ZIP always agree.
+
+The script enforces a clean working tree and requires HEAD to be on a `vX.Y.Z` tag — there is no untagged "snapshot" build, and it refuses to overwrite an existing ZIP for the same version (bump the tag instead).
+
+```bash
+# 1. Tag the commit you want to ship
+git tag v0.1.0
+git push --tags
+
+# 2. Build the ZIP
+./scripts/release.sh
+# → versions/rx-pagemarker-editor-v0.1.0.zip
+
+# 3. Send the ZIP. Recipients extract it and open page-marker-editor.html.
+```
+
+Every release is archived locally under `versions/` (gitignored). The script lists all existing versions after each build so you can see your release history at a glance.
+
+The ZIP contains the editor, the PDF splitter, the help page, the `examples/` folder, a `VERSION` file, and a recipient-facing `README.md` (sourced from `scripts/release-readme.md` — edit that file to change what recipients see).
 
 ## Project Context
 

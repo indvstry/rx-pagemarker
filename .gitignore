@@ -17,6 +17,12 @@ build/
 dist/
 .eggs/
 
+# setuptools-scm generated version file
+src/rx_pagemarker/_version.py
+
+# Release ZIPs (local archive — not committed; ship by email/transfer)
+versions/
+
 # Testing
 .pytest_cache/
 .coverage
