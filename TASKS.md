@@ -220,6 +220,55 @@ issues before they ship into an EPUB.
 - **Acceptance.** Marker colors update reactively; one marker can show
   the union of multiple warning sources but only one dominant color.
 
+## Marker Format — EPUB 3 / DPUB-ARIA conformance
+
+> Added 2026-09-21 after the first book with print-page markers went through
+> `rx-pub convert` (bp-sakkoulas-2026-apostolakis-epopteia). rx-pub now
+> *normalises* whatever it receives (rx-ind-epub-gen `bf38d1b`), so nothing is
+> broken downstream — but this tool still emits the pre-standard form, the
+> editor re-creates it on export, and the magazine HTML in
+> `rx-sakkoulas-magazine-issues-html-vc` carries it. Decision: the standard
+> form is the convention for all new work; this tool should emit it directly.
+
+**Current** (`marker.py` `create_marker()`, ~line 340):
+```html
+<span id="page5" class="page-number" role="note" aria-label="Page 5">5</span>
+```
+**Target** (EPUB 3 SSV `pagebreak` + DPUB-ARIA `doc-pagebreak`, DAISY KB "Page Navigation"):
+```html
+<span epub:type="pagebreak" role="doc-pagebreak" id="page5" aria-label="5" class="page-number">5</span>
+```
+
+- [ ] `create_marker()`: add `epub:type="pagebreak"`, `role="doc-pagebreak"`
+      (replaces `role="note"` — `note` announces the number as a supplementary
+      note to screen readers), `aria-label` = the number only (the role already
+      announces "page break"). Keep `id`, `class="page-number"`, `-2` suffixes
+      for two-column duplicates, and the visible number as content.
+- [ ] `tests/test_marker.py` lines ~105–106 and ~195: update the `role` /
+      `aria-label` assertions; add one asserting `epub:type`.
+- [ ] `tools/page-marker-editor.html`: find markers by
+      `.page-number, [epub\:type="pagebreak"], span[role="doc-pagebreak"]`
+      (keep `span[role="note"]` for opening legacy files, ~line 769); export
+      the target form (~lines 2015–2047, `setAttribute('epub:type', 'pagebreak')`
+      — the HTML DOM keeps the literal attribute name).
+- [ ] `_inject_page_number_css()` (~line 630): make optional (`--no-css`) or
+      skip when the document already links `rx-book-styles.css` — rx-pub ships
+      its own `.page-number` rule and the reader app another; three competing
+      styles for one class.
+- [ ] Legacy upgrade: `rx-pagemarker upgrade-markers in.html` (or a `--upgrade`
+      flag on `mark`) that rewrites existing `role="note"` markers to the target
+      form, for the paginated magazine issues already produced.
+- [ ] Docs: the "Page Marker HTML Format" tables in `README.md` and `CLAUDE.md`
+      (attribute table + two-column example); CHANGELOG entry.
+- [ ] Insertion sanity: never place a marker inside an endnote/footnote
+      container or a heading (extraction already skips small fonts; insertion
+      does not check the target element). Overlaps with "Position sanity
+      warnings" under *Editor — Validation*.
+
+Reference behaviour in rx-pub: `epub_builder._normalise_page_markers()` accepts
+both forms, and `docs/CLEANED-HTML-SPEC.md` § "Print-Page Markers" documents the
+contract (no markers → no page-list; markers → page-list + `printPageNumbers`).
+
 ## Editor — Navigation
 
 - [x] **Articles panel** — right-hand outline of rubrics + legal-domain
