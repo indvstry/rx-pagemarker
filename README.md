@@ -1,5 +1,11 @@
 # RX Page Marker
 
+> **Where this sits:** a **side tool** of the rx book toolchain — it inserts print-page
+> markers into HTML by matching text snippets, for content with no PDF geometry behind
+> it (magazines). Books converted from a print PDF get their markers from
+> `rx-pdf` instead, placed by page position rather than matching.
+> Full map: `rx-ind-epub-gen/docs/ECOSYSTEM.md`
+
 A Python tool to insert page number markers into HTML files for EPUB3 generation. Uses text snippets from a mapping file to accurately place page breaks that match the original PDF pagination.
 
 ## Features
